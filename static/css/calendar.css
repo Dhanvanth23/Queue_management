@@ -1,0 +1,79 @@
+/* static/css/calendar.css */
+.calendar-container {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.calendar-header h2 {
+    color: #333;
+}
+
+.calendar-header button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.calendar-header button:hover {
+    background-color: #0056b3;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+}
+
+.day-name {
+    font-weight: bold;
+    text-align: center;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.day {
+    padding: 10px;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    min-height: 100px;
+    position: relative;
+    background-color: #fff;
+    transition: background-color 0.3s;
+}
+
+.day.other-month {
+    background-color: #f8f9fa;
+    color: #ccc;
+}
+
+.day-number {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+
+.day-stats {
+    font-size: 0.8em;
+    margin-top: 5px;
+}
+
+.day-stats div {
+    margin-bottom: 3px;
+}
+
+.status-approved { color: #28a745; }
+.status-pending { color: #ffc107; }
+.status-cancelled { color: #dc3545; }

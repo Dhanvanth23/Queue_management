@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Calendar View</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <link rel="stylesheet" href="/static/css/calendar.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Appointment Management System</h1>
+            <nav>
+                <a href="/admin" class="nav-link">Admin Panel</a>
+                <a href="/admin/calendar" class="nav-link active">Calendar View</a>
+                <a href="/admin/reports" class="nav-link">reports</a>
+                <a href="/admin/logout" class="nav-link">Logout</a>
+            </nav>
+        </header>
+
+        <div class="calendar-container">
+            <div class="calendar-header">
+                <button id="prevMonthBtn">&lt; Prev</button>
+                <h2 id="currentMonthYear"></h2>
+                <button id="nextMonthBtn">Next &gt;</button>
+            </div>
+            <div id="calendar" class="calendar-grid">
+                <div class="day-name">Sun</div>
+                <div class="day-name">Mon</div>
+                <div class="day-name">Tue</div>
+                <div class="day-name">Wed</div>
+                <div class="day-name">Thu</div>
+                <div class="day-name">Fri</div>
+                <div class="day-name">Sat</div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/calendar.js"></script>
+</body>
+</html>

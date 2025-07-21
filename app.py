@@ -83,8 +83,11 @@ def get_db_connection():
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        print('login_required: session =', dict(session))  # Debug print
         if 'admin_logged_in' not in session:
+            print('login_required: not logged in, redirecting to login page')  # Debug print
             return redirect(url_for('admin_login'))
+        print('login_required: logged in as', session.get('admin_username'))  # Debug print
         return f(*args, **kwargs)
     return decorated_function
 
@@ -232,7 +235,7 @@ Questions? Contact us at {SMTP_CONFIG['email']}
 def index():
     return render_template('index.html')
 
-@app.route('/admin/login')
+@app.route('/login/admin')
 def admin_login():
     return render_template('login.html')
 
@@ -258,6 +261,50 @@ def admin_logout():
 @login_required
 def admin():
     return render_template('admin.html')
+
+# START: New code to be added
+@app.route('/admin/calendar')
+@login_required
+def admin_calendar():
+    return render_template('calendar.html')
+
+@app.route('/admin/reports')
+@login_required
+def admin_reportss():
+    return render_template('reports.html')
+
+@app.route('/api/calendar-appointments/<int:year>/<int:month>')
+@login_required
+def get_calendar_appointments(year, month):
+    try:
+        start_date = f'{year}-{month:02d}-01'
+        end_date = f'{year}-{month:02d}-31' # Simple approach for end date
+
+        conn = get_db_connection()
+        appointments = conn.execute('''
+            SELECT date, status, COUNT(id) as count
+            FROM appointments
+            WHERE date BETWEEN ? AND ?
+            GROUP BY date, status
+        ''', (start_date, end_date)).fetchall()
+
+        result = {}
+        for row in appointments:
+            date = row['date']
+            if date not in result:
+                result[date] = {'approved': 0, 'pending': 0, 'cancelled': 0, 'total': 0}
+            
+            if row['status'] in result[date]:
+                result[date][row['status']] += row['count']
+            result[date]['total'] += row['count']
+
+        conn.close()
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+# END: New code to be added
+
 
 @app.route('/api/available-slots/<date>')
 def get_available_slots(date):
