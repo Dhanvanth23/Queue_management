@@ -50,6 +50,14 @@ def init_db():
         )
     ''')
     
+    # --- MIGRATION: Ensure 'updated_at' column exists (for old DBs) ---
+    cursor.execute("PRAGMA table_info(appointments)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if 'updated_at' not in columns:
+        cursor.execute("ALTER TABLE appointments ADD COLUMN updated_at DATETIME;")
+        cursor.execute("UPDATE appointments SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL;")
+    # ---------------------------------------------------------------
+    
     # Create time slots table with predefined slots
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS time_slots (
