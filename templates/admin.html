@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - Appointment Management</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔧 Admin Panel</h1>
+            <nav>
+                <a href="/" class="nav-link">Book Appointment</a>
+                <a href="/admin" class="nav-link active">Admin Panel</a>
+            </nav>
+        </header>
+
+        <div class="admin-container">
+            <div class="admin-header">
+                <h2>Appointment Management</h2>
+                <div class="stats">
+                    <div class="stat-card">
+                        <h3 id="totalAppointments">0</h3>
+                        <p>Total Appointments</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="pendingAppointments">0</h3>
+                        <p>Pending Approval</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="approvedAppointments">0</h3>
+                        <p>Approved</p>
+                    </div>
+                </div>
+                <button onclick="refreshAppointments()" class="refresh-btn">🔄 Refresh</button>
+            </div>
+
+            <div class="filters">
+                <select id="statusFilter">
+                    <option value="">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+                
+                <input type="date" id="dateFilter" placeholder="Filter by date">
+                
+                <input type="text" id="searchInput" placeholder="Search by name or email...">
+            </div>
+
+            <div class="appointments-table">
+                <div id="loading" class="loading">Loading appointments...</div>
+                <table id="appointmentsTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="appointmentsBody">
+                    </tbody>
+                </table>
+                
+                <div id="noAppointments" class="no-data hidden">
+                    <h3>No appointments found</h3>
+                    <p>There are no appointments matching your criteria.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Confirm Action</h3>
+            <p id="confirmMessage"></p>
+            <div class="modal-actions">
+                <button onclick="closeConfirmModal()" class="modal-btn secondary">Cancel</button>
+                <button onclick="confirmAction()" class="modal-btn" id="confirmBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>✅ Success!</h3>
+            <p id="successMessage"></p>
+            <button onclick="closeSuccessModal()" class="modal-btn">Close</button>
+        </div>
+    </div>
+
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>

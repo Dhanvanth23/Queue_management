@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Your Appointment</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📅 Appointment Booking System</h1>
+            <nav>
+                <a href="/" class="nav-link active">Book Appointment</a>
+                <a href="/admin" class="nav-link">Admin Panel</a>
+            </nav>
+        </header>
+
+        <div class="booking-container">
+            <div class="form-section">
+                <h2>Book Your Appointment</h2>
+                <form id="bookingForm">
+                    <div class="form-group">
+                        <label for="name">Full Name *</label>
+                        <input type="text" id="name" name="name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">Email *</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="phone">Phone Number *</label>
+                        <input type="tel" id="phone" name="phone" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="date">Preferred Date *</label>
+                        <input type="date" id="date" name="date" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="time">Available Time Slots *</label>
+                        <select id="time" name="time" required disabled>
+                            <option value="">Select a date first</option>
+                        </select>
+                        <div id="loading" class="loading hidden">Loading available slots...</div>
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="submit-btn">Book Appointment</button>
+                </form>
+            </div>
+
+            <div class="info-section">
+                <h3>📍 Booking Information</h3>
+                <div class="info-card">
+                    <h4>Available Hours</h4>
+                    <p>Monday - Friday: 9:00 AM - 5:00 PM</p>
+                    <p>Saturday: 9:00 AM - 1:00 PM</p>
+                    <p>Sunday: Closed</p>
+                </div>
+
+                <div class="info-card">
+                    <h4>Important Notes</h4>
+                    <ul>
+                        <li>Appointments are subject to approval</li>
+                        <li>You will receive a confirmation email</li>
+                        <li>Please arrive 10 minutes early</li>
+                        <li>Cancellations must be made 24 hours in advance</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="modal hidden">
+        <div class="modal-content">
+            <h3>✅ Appointment Booked Successfully!</h3>
+            <p>Your appointment has been submitted and is pending approval.</p>
+            <p><strong>Appointment ID:</strong> <span id="appointmentId"></span></p>
+            <p>You will receive a confirmation email shortly.</p>
+            <button onclick="closeModal()" class="modal-btn">Close</button>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal hidden">
+        <div class="modal-content error">
+            <h3>❌ Error</h3>
+            <p id="errorMessage"></p>
+            <button onclick="closeErrorModal()" class="modal-btn">Close</button>
+        </div>
+    </div>
+
+    <script src="/static/js/booking.js"></script>
+</body>
+</html>
