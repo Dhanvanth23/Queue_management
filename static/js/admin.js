@@ -1,3 +1,4 @@
+// admin.js
 // Global variables
 let allAppointments = [];
 let filteredAppointments = [];
@@ -20,6 +21,7 @@ const approvedAppointmentsEl = document.getElementById('approvedAppointments');
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('[Admin Panel Loaded]');
     setupEventListeners();
     loadAppointments();
 });
@@ -44,27 +46,29 @@ function debounce(func, wait) {
     };
 }
 
-// Load all appointments from the server
+// Load appointments from server
 async function loadAppointments() {
     showLoading(true);
     
     try {
         const response = await fetch('/api/appointments');
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
-        if (!response.ok) {
-            throw new Error('Failed to load appointments');
-        }
-        
-        allAppointments = await response.json();
+        const appointments = await response.json();
+        allAppointments = appointments;
         filteredAppointments = [...allAppointments];
-        
+
         updateStats();
         applyFilters();
         renderAppointments();
-        
+
+        console.log(`Loaded ${allAppointments.length} appointments`);
     } catch (error) {
         console.error('Error loading appointments:', error);
         showError('Failed to load appointments. Please try again.');
+        allAppointments = [];
+        filteredAppointments = [];
+        showNoAppointments();
     } finally {
         showLoading(false);
     }
@@ -72,13 +76,9 @@ async function loadAppointments() {
 
 // Update statistics
 function updateStats() {
-    const total = allAppointments.length;
-    const pending = allAppointments.filter(apt => apt.status === 'pending').length;
-    const approved = allAppointments.filter(apt => apt.status === 'approved').length;
-    
-    totalAppointmentsEl.textContent = total;
-    pendingAppointmentsEl.textContent = pending;
-    approvedAppointmentsEl.textContent = approved;
+    totalAppointmentsEl.textContent = allAppointments.length;
+    pendingAppointmentsEl.textContent = allAppointments.filter(a => a.status === 'pending').length;
+    approvedAppointmentsEl.textContent = allAppointments.filter(a => a.status === 'approved').length;
 }
 
 // Apply filters to appointments
@@ -86,30 +86,19 @@ function applyFilters() {
     const statusValue = statusFilter.value.toLowerCase();
     const dateValue = dateFilter.value;
     const searchValue = searchInput.value.toLowerCase().trim();
-    
+
     filteredAppointments = allAppointments.filter(appointment => {
-        // Status filter
-        if (statusValue && appointment.status !== statusValue) {
-            return false;
-        }
-        
-        // Date filter
-        if (dateValue && appointment.date !== dateValue) {
-            return false;
-        }
-        
-        // Search filter (name or email)
+        if (statusValue && appointment.status !== statusValue) return false;
+        if (dateValue && appointment.date !== dateValue) return false;
+
         if (searchValue) {
             const matchesName = appointment.name.toLowerCase().includes(searchValue);
             const matchesEmail = appointment.email.toLowerCase().includes(searchValue);
-            if (!matchesName && !matchesEmail) {
-                return false;
-            }
+            if (!matchesName && !matchesEmail) return false;
         }
-        
         return true;
     });
-    
+
     renderAppointments();
 }
 
@@ -119,21 +108,20 @@ function renderAppointments() {
         showNoAppointments();
         return;
     }
-    
+
     hideNoAppointments();
-    
     appointmentsBody.innerHTML = '';
-    
+
     filteredAppointments.forEach(appointment => {
         const row = createAppointmentRow(appointment);
         appointmentsBody.appendChild(row);
     });
 }
 
-// Create a table row for an appointment
+// Create appointment row
 function createAppointmentRow(appointment) {
     const row = document.createElement('tr');
-    
+
     row.innerHTML = `
         <td>${appointment.id}</td>
         <td>${escapeHtml(appointment.name)}</td>
@@ -143,104 +131,104 @@ function createAppointmentRow(appointment) {
         <td>${formatTime(appointment.time)}</td>
         <td><span class="status ${appointment.status}">${appointment.status.toUpperCase()}</span></td>
         <td>${formatDateTime(appointment.created_at)}</td>
-        <td>
-            ${createActionButtons(appointment)}
-        </td>
+        <td>${createActionButtons(appointment)}</td>
     `;
-    
+
     return row;
 }
 
-// Create action buttons based on appointment status
+// Action buttons
 function createActionButtons(appointment) {
     let buttons = '';
-    
     if (appointment.status === 'pending') {
         buttons += `
-            <button class="action-btn approve" onclick="showConfirmModal(${appointment.id}, 'approved')">
-                Approve
-            </button>
-            <button class="action-btn cancel" onclick="showConfirmModal(${appointment.id}, 'cancelled')">
-                Cancel
-            </button>
+            <button class="action-btn approve" onclick="showConfirmModal(${appointment.id}, 'approved')">Approve</button>
+            <button class="action-btn cancel" onclick="showConfirmModal(${appointment.id}, 'cancelled')">Cancel</button>
         `;
     } else if (appointment.status === 'approved') {
         buttons += `
-            <button class="action-btn cancel" onclick="showConfirmModal(${appointment.id}, 'cancelled')">
-                Cancel
-            </button>
+            <button class="action-btn cancel" onclick="showConfirmModal(${appointment.id}, 'cancelled')">Cancel</button>
         `;
     } else {
         buttons = '<span style="color: #6c757d; font-style: italic;">No actions available</span>';
     }
-    
     return buttons;
 }
 
-// Show confirmation modal
+// Confirmation Modal
 function showConfirmModal(appointmentId, action) {
     currentAppointmentId = appointmentId;
     currentAction = action;
-    
+
     const appointment = allAppointments.find(apt => apt.id === appointmentId);
+    if (!appointment) {
+        showError('Appointment not found');
+        return;
+    }
+
     const actionText = action === 'approved' ? 'approve' : 'cancel';
-    
-    document.getElementById('confirmMessage').textContent = 
+
+    document.getElementById('confirmMessage').textContent =
         `Are you sure you want to ${actionText} the appointment for ${appointment.name}?`;
-    
+
     const confirmBtn = document.getElementById('confirmBtn');
     confirmBtn.textContent = actionText.charAt(0).toUpperCase() + actionText.slice(1);
-    confirmBtn.className = `modal-btn ${action === 'cancelled' ? 'cancel' : ''}`;
-    
-    document.getElementById('confirmModal').classList.remove('hidden');
+    confirmBtn.className = `modal-btn ${action === 'cancelled' ? 'cancel' : 'primary'}`;
+
+    console.log('[Modal Opened] ID:', currentAppointmentId, '| Action:', currentAction);
+
+    setTimeout(() => {
+        document.getElementById('confirmModal').classList.remove('hidden');
+    }, 100);
 }
 
 // Confirm action
 async function confirmAction() {
-    if (!currentAppointmentId || !currentAction) return;
-    
+    if (!currentAppointmentId || !currentAction) {
+        showError('Invalid action parameters');
+        return;
+    }
+
+    const confirmBtn = document.getElementById('confirmBtn');
+    const originalText = confirmBtn.textContent;
+
     try {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Processing...';
+
         const response = await fetch(`/api/appointments/${currentAppointmentId}/status`, {
             method: 'PUT',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ status: currentAction })
+            body: JSON.stringify({
+                status: currentAction
+            })
         });
-        
-        const result = await response.json();
-        
-        if (response.ok && result.success) {
-            closeConfirmModal();
-            showSuccessModal(result.message);
-            await loadAppointments(); // Reload to get updated data
-        } else {
-            throw new Error(result.error || 'Failed to update appointment');
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
         }
-        
+
+        closeConfirmModal();
+        showSuccessToast(`Appointment successfully ${currentAction}!`);
+        await loadAppointments();  // Full refresh
     } catch (error) {
         console.error('Error updating appointment:', error);
-        showError(error.message || 'Failed to update appointment. Please try again.');
+        showError(`Failed to update appointment: ${error.message}`);
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = originalText;
+        currentAppointmentId = null;
+        currentAction = null;
     }
-    
-    currentAppointmentId = null;
-    currentAction = null;
-}
-
-// Refresh appointments
-async function refreshAppointments() {
-    await loadAppointments();
 }
 
 // Utility functions
 function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-    });
+    const date = new Date(dateString + 'T00:00:00');
+    return date.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function formatTime(timeString) {
@@ -253,13 +241,7 @@ function formatTime(timeString) {
 
 function formatDateTime(dateTimeString) {
     const date = new Date(dateTimeString);
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function escapeHtml(text) {
@@ -268,7 +250,7 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Show/hide functions
+// UI control functions
 function showLoading(show) {
     if (show) {
         loadingDiv.classList.remove('hidden');
@@ -290,13 +272,19 @@ function hideNoAppointments() {
 }
 
 function showError(message) {
-    alert(message); // Simple alert for now, can be enhanced with a modal
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-toast';
+    errorDiv.innerHTML = `<div class="error-content"><span class="error-message">${message}</span><button class="error-close" onclick="this.parentElement.parentElement.remove()">×</button></div>`;
+    document.body.appendChild(errorDiv);
+    setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 5000);
 }
 
-// Modal functions
-function showSuccessModal(message) {
-    document.getElementById('successMessage').textContent = message;
-    document.getElementById('successModal').classList.remove('hidden');
+function showSuccessToast(message) {
+    const successDiv = document.createElement('div');
+    successDiv.className = 'success-toast';
+    successDiv.innerHTML = `<div class="success-content"><span class="success-message">${message}</span><button class="success-close" onclick="this.parentElement.parentElement.remove()">×</button></div>`;
+    document.body.appendChild(successDiv);
+    setTimeout(() => { if (successDiv.parentNode) successDiv.remove(); }, 5000);
 }
 
 function closeConfirmModal() {
@@ -309,7 +297,6 @@ function closeSuccessModal() {
     document.getElementById('successModal').classList.add('hidden');
 }
 
-// Close modals when clicking outside
 document.addEventListener('click', function(e) {
     if (e.target.classList.contains('modal')) {
         closeConfirmModal();
@@ -317,7 +304,6 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// Close modals with Escape key
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closeConfirmModal();
