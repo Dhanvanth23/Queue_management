@@ -20,14 +20,14 @@ DATABASE = 'appointments.db'
 SMTP_CONFIG = {
     'server': 'smtp.gmail.com',  # Change to your SMTP server
     'port': 587,
-    'email': 'dhanvanth.2301@gmail.com',  # Your email
-    'password': 'coko pssl wmix rlep',  # Your app password (not regular password)
+    'email':'Brindha9005@gmail.com',  # Your email
+    'password': 'hash fnqr bzuc fprm',  # Your app password (not regular password)
     'use_tls': True
 }
 
 # Admin credentials - In production, store these securely
 ADMIN_CREDENTIALS = {
-    'admin': 'admin123',  # username: password,
+     # username: password,
      'brindha': 'brindha123' # You can add more users
 }
 
@@ -235,7 +235,7 @@ Questions? Contact us at {SMTP_CONFIG['email']}
 def index():
     return render_template('index.html')
 
-@app.route('/login/admin')
+@app.route('/admin/login')
 def admin_login():
     return render_template('login.html')
 
