@@ -12,7 +12,7 @@ import hashlib
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = 'coko pssl wmix rlep'  # Change this to a secure secret key
+app.secret_key = 'hash fnqr bzuc fprm'  # Change this to a secure secret key
 
 DATABASE = 'appointments.db'
 
