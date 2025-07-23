@@ -10,21 +10,27 @@
 <body>
     <div class="container">
         <header>
-            <h1>Appointment Management System</h1>
+            <h1>Turf Booking Management System</h1>
             <nav>
-                <a href="/admin" class="nav-link">Admin Panel</a>
+                <a href="/admin" class="nav-link">Dashboard</a>
                 <a href="/admin/calendar" class="nav-link active">Calendar View</a>
-                <a href="/admin/reports" class="nav-link">reports</a>
+                <a href="/admin/reports" class="nav-link">Reports & Analytics</a>
                 <a href="/admin/logout" class="nav-link">Logout</a>
             </nav>
         </header>
 
-        <div class="calendar-container">
+        <div class="admin-container">
             <div class="calendar-header">
-                <button id="prevMonthBtn">&lt; Prev</button>
+                <button id="prevMonthBtn" class="calendar-nav-btn">&lt; Prev</button>
                 <h2 id="currentMonthYear"></h2>
-                <button id="nextMonthBtn">Next &gt;</button>
+                <button id="nextMonthBtn" class="calendar-nav-btn">Next &gt;</button>
             </div>
+            
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Loading calendar...</p>
+            </div>
+            
             <div id="calendar" class="calendar-grid">
                 <div class="day-name">Sun</div>
                 <div class="day-name">Mon</div>
@@ -33,6 +39,22 @@
                 <div class="day-name">Thu</div>
                 <div class="day-name">Fri</div>
                 <div class="day-name">Sat</div>
+                <!-- Days will be populated here -->
+            </div>
+            
+            <div id="dayDetailsModal" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 id="modalDayTitle">Day Details</h2>
+                        <span class="close-modal" onclick="closeDayDetailsModal()">&times;</span>
+                    </div>
+                    <div id="dayAppointmentsList" class="modal-body">
+                        <!-- Appointments will be listed here -->
+                    </div>
+                    <div class="modal-buttons">
+                        <button class="modal-btn primary" onclick="closeDayDetailsModal()">Close</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

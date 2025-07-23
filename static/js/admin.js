@@ -1,9 +1,9 @@
 // admin.js
 // Global variables
-let allAppointments = [];
-let filteredAppointments = [];
+let allBookings = [];
+let filteredBookings = [];
 let currentAction = null;
-let currentAppointmentId = null;
+let currentBookingId = null;
 
 // DOM elements
 const appointmentsTable = document.getElementById('appointmentsTable');
@@ -15,13 +15,14 @@ const dateFilter = document.getElementById('dateFilter');
 const searchInput = document.getElementById('searchInput');
 
 // Stats elements
-const totalAppointmentsEl = document.getElementById('totalAppointments');
-const pendingAppointmentsEl = document.getElementById('pendingAppointments');
-const approvedAppointmentsEl = document.getElementById('approvedAppointments');
+const totalBookingsEl = document.getElementById('totalBookings');
+const pendingBookingsEl = document.getElementById('pendingBookings');
+const approvedBookingsEl = document.getElementById('approvedBookings');
+const cancelledBookingsEl = document.getElementById('cancelledBookings');
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('[Admin Panel Loaded]');
+    console.log('[Turf Admin Panel Loaded]');
     setupEventListeners();
     loadAppointments();
 });
@@ -46,7 +47,7 @@ function debounce(func, wait) {
     };
 }
 
-// Load appointments from server
+// Load bookings from server
 async function loadAppointments() {
     showLoading(true);
     
@@ -54,20 +55,20 @@ async function loadAppointments() {
         const response = await fetch('/api/appointments');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
-        const appointments = await response.json();
-        allAppointments = appointments;
-        filteredAppointments = [...allAppointments];
+        const bookings = await response.json();
+        allBookings = bookings;
+        filteredBookings = [...allBookings];
 
         updateStats();
         applyFilters();
         renderAppointments();
 
-        console.log(`Loaded ${allAppointments.length} appointments`);
+        console.log(`Loaded ${allBookings.length} turf bookings`);
     } catch (error) {
-        console.error('Error loading appointments:', error);
-        showError('Failed to load appointments. Please try again.');
-        allAppointments = [];
-        filteredAppointments = [];
+        console.error('Error loading bookings:', error);
+        showError('Failed to load bookings. Please try again.');
+        allBookings = [];
+        filteredBookings = [];
         showNoAppointments();
     } finally {
         showLoading(false);
@@ -76,25 +77,27 @@ async function loadAppointments() {
 
 // Update statistics
 function updateStats() {
-    totalAppointmentsEl.textContent = allAppointments.length;
-    pendingAppointmentsEl.textContent = allAppointments.filter(a => a.status === 'pending').length;
-    approvedAppointmentsEl.textContent = allAppointments.filter(a => a.status === 'approved').length;
+    totalBookingsEl.textContent = allBookings.length;
+    pendingBookingsEl.textContent = allBookings.filter(b => b.status === 'pending').length;
+    approvedBookingsEl.textContent = allBookings.filter(b => b.status === 'approved').length;
+    cancelledBookingsEl.textContent = allBookings.filter(b => b.status === 'cancelled').length;
 }
 
-// Apply filters to appointments
+// Apply filters to bookings
 function applyFilters() {
     const statusValue = statusFilter.value.toLowerCase();
     const dateValue = dateFilter.value;
     const searchValue = searchInput.value.toLowerCase().trim();
 
-    filteredAppointments = allAppointments.filter(appointment => {
-        if (statusValue && appointment.status !== statusValue) return false;
-        if (dateValue && appointment.date !== dateValue) return false;
+    filteredBookings = allBookings.filter(booking => {
+        if (statusValue && booking.status !== statusValue) return false;
+        if (dateValue && booking.date !== dateValue) return false;
 
         if (searchValue) {
-            const matchesName = appointment.name.toLowerCase().includes(searchValue);
-            const matchesEmail = appointment.email.toLowerCase().includes(searchValue);
-            if (!matchesName && !matchesEmail) return false;
+            const matchesName = booking.name.toLowerCase().includes(searchValue);
+            const matchesEmail = booking.email.toLowerCase().includes(searchValue);
+            const matchesPhone = booking.phone.toLowerCase().includes(searchValue);
+            if (!matchesName && !matchesEmail && !matchesPhone) return false;
         }
         return true;
     });
@@ -102,9 +105,9 @@ function applyFilters() {
     renderAppointments();
 }
 
-// Render appointments table
+// Render bookings table
 function renderAppointments() {
-    if (filteredAppointments.length === 0) {
+    if (filteredBookings.length === 0) {
         showNoAppointments();
         return;
     }
@@ -112,79 +115,105 @@ function renderAppointments() {
     hideNoAppointments();
     appointmentsBody.innerHTML = '';
 
-    filteredAppointments.forEach(appointment => {
-        const row = createAppointmentRow(appointment);
+    filteredBookings.forEach(booking => {
+        const row = createBookingRow(booking);
         appointmentsBody.appendChild(row);
     });
 }
 
-// Create appointment row
-function createAppointmentRow(appointment) {
+// Create booking row
+function createBookingRow(booking) {
     const row = document.createElement('tr');
+    const endTime = calculateEndTime(booking.time, booking.duration);
 
     row.innerHTML = `
-        <td>${appointment.id}</td>
-        <td>${escapeHtml(appointment.name)}</td>
-        <td>${escapeHtml(appointment.email)}</td>
-        <td>${escapeHtml(appointment.phone)}</td>
-        <td>${formatDate(appointment.date)}</td>
-        <td>${formatTime(appointment.time)}</td>
-        <td><span class="status ${appointment.status}">${appointment.status.toUpperCase()}</span></td>
-        <td>${formatDateTime(appointment.created_at)}</td>
-        <td>${createActionButtons(appointment)}</td>
+        <td>${booking.id}</td>
+        <td>
+            <div class="customer-info">
+                <strong>${escapeHtml(booking.name)}</strong>
+                <small>${escapeHtml(booking.email)}</small>
+            </div>
+        </td>
+        <td>${escapeHtml(booking.phone)}</td>
+        <td>${formatDate(booking.date)}</td>
+        <td>
+            <div class="time-slot">
+                <span class="time">${formatTime(booking.time)}</span>
+                <span class="separator">to</span>
+                <span class="time">${formatTime(endTime)}</span>
+            </div>
+        </td>
+        <td>${booking.duration} mins</td>
+        <td><span class="status ${booking.status}">${booking.status.toUpperCase()}</span></td>
+        <td>${formatDateTime(booking.created_at)}</td>
+        <td>${createActionButtons(booking)}</td>
     `;
 
     return row;
 }
 
+// Calculate end time
+function calculateEndTime(startTime, duration) {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const totalMinutes = hours * 60 + minutes + duration;
+    
+    let newHours = Math.floor(totalMinutes / 60) % 24;
+    const newMinutes = totalMinutes % 60;
+    
+    return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+}
+
 // Action buttons
-function createActionButtons(appointment) {
+function createActionButtons(booking) {
     let buttons = '';
-    if (appointment.status === 'pending') {
+    if (booking.status === 'pending') {
         buttons += `
-            <button class="action-btn approve" onclick="showConfirmModal(${appointment.id}, 'approved')">Approve</button>
-            <button class="action-btn cancel" onclick="showConfirmModal(${appointment.id}, 'cancelled')">Cancel</button>
+            <button class="action-btn approve" onclick="showConfirmModal(${booking.id}, 'approved')">
+                <i class="fas fa-check"></i> Approve
+            </button>
+            <button class="action-btn cancel" onclick="showConfirmModal(${booking.id}, 'cancelled')">
+                <i class="fas fa-times"></i> Cancel
+            </button>
         `;
-    } else if (appointment.status === 'approved') {
+    } else if (booking.status === 'approved') {
         buttons += `
-            <button class="action-btn cancel" onclick="showConfirmModal(${appointment.id}, 'cancelled')">Cancel</button>
+            <button class="action-btn cancel" onclick="showConfirmModal(${booking.id}, 'cancelled')">
+                <i class="fas fa-times"></i> Cancel
+            </button>
         `;
     } else {
-        buttons = '<span style="color: #6c757d; font-style: italic;">No actions available</span>';
+        buttons = '<span class="no-actions">No actions</span>';
     }
     return buttons;
 }
 
 // Confirmation Modal
-function showConfirmModal(appointmentId, action) {
-    currentAppointmentId = appointmentId;
+function showConfirmModal(bookingId, action) {
+    currentBookingId = bookingId;
     currentAction = action;
 
-    const appointment = allAppointments.find(apt => apt.id === appointmentId);
-    if (!appointment) {
-        showError('Appointment not found');
+    const booking = allBookings.find(b => b.id === bookingId);
+    if (!booking) {
+        showError('Booking not found');
         return;
     }
 
     const actionText = action === 'approved' ? 'approve' : 'cancel';
+    const endTime = calculateEndTime(booking.time, booking.duration);
 
     document.getElementById('confirmMessage').textContent =
-        `Are you sure you want to ${actionText} the appointment for ${appointment.name}?`;
+        `Are you sure you want to ${actionText} the turf booking for ${booking.name} (${formatTime(booking.time)} - ${formatTime(endTime)})?`;
 
     const confirmBtn = document.getElementById('confirmBtn');
     confirmBtn.textContent = actionText.charAt(0).toUpperCase() + actionText.slice(1);
     confirmBtn.className = `modal-btn ${action === 'cancelled' ? 'cancel' : 'primary'}`;
 
-    console.log('[Modal Opened] ID:', currentAppointmentId, '| Action:', currentAction);
-
-    setTimeout(() => {
-        document.getElementById('confirmModal').classList.remove('hidden');
-    }, 100);
+    document.getElementById('confirmModal').classList.remove('hidden');
 }
 
 // Confirm action
 async function confirmAction() {
-    if (!currentAppointmentId || !currentAction) {
+    if (!currentBookingId || !currentAction) {
         showError('Invalid action parameters');
         return;
     }
@@ -196,7 +225,7 @@ async function confirmAction() {
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Processing...';
 
-        const response = await fetch(`/api/appointments/${currentAppointmentId}/status`, {
+        const response = await fetch(`/api/appointments/${currentBookingId}/status`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -212,15 +241,15 @@ async function confirmAction() {
         }
 
         closeConfirmModal();
-        showSuccessToast(`Appointment successfully ${currentAction}!`);
-        await loadAppointments();  // Full refresh
+        showSuccessToast(`Booking successfully ${currentAction}!`);
+        await loadAppointments();
     } catch (error) {
-        console.error('Error updating appointment:', error);
-        showError(`Failed to update appointment: ${error.message}`);
+        console.error('Error updating booking:', error);
+        showError(`Failed to update booking: ${error.message}`);
     } finally {
         confirmBtn.disabled = false;
         confirmBtn.textContent = originalText;
-        currentAppointmentId = null;
+        currentBookingId = null;
         currentAction = null;
     }
 }
@@ -228,7 +257,7 @@ async function confirmAction() {
 // Utility functions
 function formatDate(dateString) {
     const date = new Date(dateString + 'T00:00:00');
-    return date.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function formatTime(timeString) {
@@ -241,7 +270,12 @@ function formatTime(timeString) {
 
 function formatDateTime(dateTimeString) {
     const date = new Date(dateTimeString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
 }
 
 function escapeHtml(text) {
@@ -274,7 +308,12 @@ function hideNoAppointments() {
 function showError(message) {
     const errorDiv = document.createElement('div');
     errorDiv.className = 'error-toast';
-    errorDiv.innerHTML = `<div class="error-content"><span class="error-message">${message}</span><button class="error-close" onclick="this.parentElement.parentElement.remove()">×</button></div>`;
+    errorDiv.innerHTML = `
+        <div class="error-content">
+            <span class="error-message">${message}</span>
+            <button class="error-close" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>
+    `;
     document.body.appendChild(errorDiv);
     setTimeout(() => { if (errorDiv.parentNode) errorDiv.remove(); }, 5000);
 }
@@ -282,14 +321,19 @@ function showError(message) {
 function showSuccessToast(message) {
     const successDiv = document.createElement('div');
     successDiv.className = 'success-toast';
-    successDiv.innerHTML = `<div class="success-content"><span class="success-message">${message}</span><button class="success-close" onclick="this.parentElement.parentElement.remove()">×</button></div>`;
+    successDiv.innerHTML = `
+        <div class="success-content">
+            <span class="success-message">${message}</span>
+            <button class="success-close" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>
+    `;
     document.body.appendChild(successDiv);
     setTimeout(() => { if (successDiv.parentNode) successDiv.remove(); }, 5000);
 }
 
 function closeConfirmModal() {
     document.getElementById('confirmModal').classList.add('hidden');
-    currentAppointmentId = null;
+    currentBookingId = null;
     currentAction = null;
 }
 

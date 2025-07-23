@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Book Your Appointment</title>
+    <title>Turf Booking System</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1> Appointment Booking System</h1>
+            <h1>Turf Booking System</h1>
             <nav>
-                <a href="/" class="nav-link active">Book Appointment</a>
+                <a href="/" class="nav-link active">Book Turf</a>
                 <a href="/admin" class="nav-link">Admin Panel</a>
             </nav>
         </header>
 
         <div class="booking-container">
             <div class="form-section">
-                <h2>Book Your Appointment</h2>
+                <h2>Book Your Turf Slot</h2>
                 <form id="bookingForm">
                     <div class="form-group">
                         <label for="name">Full Name *</label>
@@ -36,7 +36,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="date">Preferred Date *</label>
+                        <label for="date">Booking Date *</label>
                         <input type="date" id="date" name="date" required>
                     </div>
 
@@ -48,26 +48,35 @@
                         <div id="loading" class="loading hidden">Loading available slots...</div>
                     </div>
 
-                    <button type="submit" id="submitBtn" class="submit-btn">Book Appointment</button>
+                    <div class="form-group">
+                        <label for="duration">Duration *</label>
+                        <select id="duration" name="duration" required disabled>
+                            <option value="">Select time slot first</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" id="submitBtn" class="submit-btn">Book Turf Slot</button>
                 </form>
             </div>
 
             <div class="info-section">
-                <h3>📍 Booking Information</h3>
+                <h3>📍 Turf Booking Information</h3>
                 <div class="info-card">
                     <h4>Available Hours</h4>
-                    <p>Monday - Friday: 9:00 AM - 5:00 PM</p>
-                    <p>Saturday: 9:00 AM - 1:00 PM</p>
-                    <p>Sunday: Closed</p>
+                    <p>Everyday: 6:00 AM - 3:00 AM (next day)</p>
+                    <p>30-minute or 1-hour slots available</p>
                 </div>
 
                 <div class="info-card">
                     <h4>Important Notes</h4>
                     <ul>
-                        <li>Appointments are subject to approval</li>
+                        <li>Minimum booking duration: 30 minutes</li>
                         <li>You will receive a confirmation email</li>
                         <li>Please arrive 10 minutes early</li>
                         <li>Cancellations must be made 24 hours in advance</li>
+                        <li>No bookings allowed between 3 AM - 6 AM</li>
                     </ul>
                 </div>
             </div>
@@ -77,9 +86,10 @@
     <!-- Success Modal -->
     <div id="successModal" class="modal hidden">
         <div class="modal-content">
-            <h3>✅ Appointment Booked Successfully!</h3>
-            <p>Your appointment has been submitted and is pending approval.</p>
-            <p><strong>Appointment ID:</strong> <span id="appointmentId"></span></p>
+            <h3>✅ Turf Booked Successfully!</h3>
+            <p>Your turf booking has been submitted and is pending approval.</p>
+            <p><strong>Booking ID:</strong> <span id="appointmentId"></span></p>
+            <p><strong>Time Slot:</strong> <span id="bookingSlot"></span></p>
             <p>You will receive a confirmation email shortly.</p>
             <button onclick="closeModal()" class="modal-btn">Close</button>
         </div>

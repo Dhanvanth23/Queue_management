@@ -470,7 +470,7 @@ tbody tr:hover {
     }
     
     header {
-        flex-direction: column;
+        flex-direction: row;
         text-align: center;
         gap: 15px;
     }
@@ -485,7 +485,7 @@ tbody tr:hover {
     }
     
     .admin-header {
-        flex-direction: column;
+        flex-direction: row;
         align-items: stretch;
     }
     
@@ -494,7 +494,7 @@ tbody tr:hover {
     }
     
     .filters {
-        flex-direction: column;
+        flex-direction: row;
     }
     
     .filters input[type="text"] {

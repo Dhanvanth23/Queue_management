@@ -1,34 +1,31 @@
-# app.py
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime, timedelta
-import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
-import hashlib
+from collections import defaultdict
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = 'hash fnqr bzuc fprm'  # Change this to a secure secret key
+app.secret_key = 'hash fnqr bzuc fprm'
 
 DATABASE = 'appointments.db'
 
-# SMTP Configuration - Update these with your email settings
+# SMTP Configuration
 SMTP_CONFIG = {
-    'server': 'smtp.gmail.com',  # Change to your SMTP server
+    'server': 'smtp.gmail.com',
     'port': 587,
-    'email':'Brindha9005@gmail.com',  # Your email
-    'password': 'hash fnqr bzuc fprm',  # Your app password (not regular password)
+    'email': 'Brindha9005@gmail.com',
+    'password': 'hash fnqr bzuc fprm',
     'use_tls': True
 }
 
-# Admin credentials - In production, store these securely
+# Admin credentials
 ADMIN_CREDENTIALS = {
-     # username: password,
-     'brindha': 'brindha123' # You can add more users
+    'admin': 'admin123'
 }
 
 def init_db():
@@ -44,33 +41,34 @@ def init_db():
             phone TEXT NOT NULL,
             date TEXT NOT NULL,
             time TEXT NOT NULL,
+            duration INTEGER DEFAULT 30,
             status TEXT DEFAULT 'pending',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
-    # --- MIGRATION: Ensure 'updated_at' column exists (for old DBs) ---
-    cursor.execute("PRAGMA table_info(appointments)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if 'updated_at' not in columns:
-        cursor.execute("ALTER TABLE appointments ADD COLUMN updated_at DATETIME;")
-        cursor.execute("UPDATE appointments SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL;")
-    # ---------------------------------------------------------------
-    
-    # Create time slots table with predefined slots
+    # Create time slots table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS time_slots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             time TEXT UNIQUE NOT NULL,
-            max_bookings INTEGER DEFAULT 1
+            max_bookings INTEGER DEFAULT 2
         )
     ''')
     
-    # Insert default time slots if not exists
-    default_slots = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00']
+    # Insert time slots from 6 AM to 3 AM (next day)
+    default_slots = []
+    for hour in range(6, 24):
+        default_slots.append((f"{hour:02d}:00", 2))
+        default_slots.append((f"{hour:02d}:30", 2))
+    for hour in range(0, 4):
+        default_slots.append((f"{hour:02d}:00", 2))
+        if hour < 3:
+            default_slots.append((f"{hour:02d}:30", 2))
+    
     for slot in default_slots:
-        cursor.execute('INSERT OR IGNORE INTO time_slots (time) VALUES (?)', (slot,))
+        cursor.execute('INSERT OR IGNORE INTO time_slots (time, max_bookings) VALUES (?, ?)', slot)
     
     conn.commit()
     conn.close()
@@ -83,16 +81,17 @@ def get_db_connection():
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        print('login_required: session =', dict(session))  # Debug print
-        if 'admin_logged_in' not in session:
-            print('login_required: not logged in, redirecting to login page')  # Debug print
+        # Check if admin is logged in
+        if 'admin_logged_in' not in session or not session.get('admin_logged_in'):
+            # Clear any invalid session data
+            session.pop('admin_logged_in', None)
+            session.pop('admin_username', None)
+            flash('Please log in to access the admin panel.', 'warning')
             return redirect(url_for('admin_login'))
-        print('login_required: logged in as', session.get('admin_username'))  # Debug print
         return f(*args, **kwargs)
     return decorated_function
 
 def send_email(to_email, subject, body, is_html=False):
-    """Send email using SMTP"""
     try:
         msg = MIMEMultipart('alternative')
         msg['From'] = SMTP_CONFIG['email']
@@ -110,124 +109,64 @@ def send_email(to_email, subject, body, is_html=False):
         server.login(SMTP_CONFIG['email'], SMTP_CONFIG['password'])
         server.send_message(msg)
         server.quit()
-        
         return True
     except Exception as e:
         print(f"Error sending email: {e}")
         return False
 
-# This function is no longer called immediately on booking
-# It will only be called when an admin explicitly approves or cancels
-def send_appointment_confirmation_email(appointment_data):
-    """Send confirmation email to customer (for initial booking, but now managed by admin approval)"""
-    subject = "Appointment Confirmation - Your Booking Request"
-    
-    body = f"""
-Dear {appointment_data['name']},
-
-Thank you for booking an appointment with us!
-
-Your Appointment Details:
-━━━━━━━━━━━━━━━━━━━━━━━━
-📅 Date: {appointment_data['date']}
-⏰ Time: {appointment_data['time']}
-📞 Phone: {appointment_data['phone']}
-🆔 Appointment ID: #{appointment_data['id']}
-
-Status: PENDING APPROVAL
-━━━━━━━━━━━━━━━━━━━━━━━━
-
-Your appointment is currently pending approval. We will review your request and send you a confirmation email once it's approved.
-
-What's Next?
-• We will review your appointment request within 24 hours
-• You'll receive an email notification when your appointment is approved
-• Please arrive 10 minutes early for your appointment
-
-Important Notes:
-• If you need to reschedule or cancel, please contact us at least 24 hours in advance
-• Bring a valid ID and any relevant documents
-• Our office is closed on Sundays
-
-Thank you for choosing our services!
-
-Best regards,
-The Appointment Team
-
----
-This is an automated message. Please do not reply to this email.
-If you have any questions, please contact us at {SMTP_CONFIG['email']}
-    """
-    
-    return send_email(appointment_data['email'], subject, body)
-
 def send_status_update_email(appointment_data, old_status):
-    """Send status update email to customer"""
     status = appointment_data['status']
     
+    # Calculate end time
+    start_time = datetime.strptime(appointment_data['time'], '%H:%M')
+    end_time = (start_time + timedelta(minutes=appointment_data['duration'])).strftime('%H:%M')
+    
     if status == 'approved':
-        subject = "✅ Appointment Approved - Confirmation Details"
+        subject = "✅ Turf Booking Approved"
         body = f"""
 Dear {appointment_data['name']},
 
-Great news! Your appointment has been APPROVED.
+Your turf booking has been APPROVED.
 
-Confirmed Appointment Details:
+Booking Details:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📅 Date: {appointment_data['date']}
-⏰ Time: {appointment_data['time']}
+⏰ Time: {appointment_data['time']} to {end_time}
+⏳ Duration: {appointment_data['duration']} minutes
 📞 Phone: {appointment_data['phone']}
-🆔 Appointment ID: #{appointment_data['id']}
+🆔 Booking ID: #{appointment_data['id']}
 
 Status: APPROVED ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Your appointment is now confirmed! Please save this email for your records.
-
-Important Reminders:
-• Arrive 10 minutes early
-• Bring a valid ID
-• Bring any relevant documents
-• Contact us if you need to reschedule (at least 24 hours notice)
-
-We look forward to seeing you!
+You can view your booking details at any time by visiting our website.
 
 Best regards,
-The Appointment Team
-
----
-Need to reschedule? Contact us at {SMTP_CONFIG['email']}
+The Turf Management Team
         """
     elif status == 'cancelled':
-        subject = "❌ Appointment Cancelled - Booking Update"
+        subject = "❌ Turf Booking Cancelled"
         body = f"""
 Dear {appointment_data['name']},
 
-We regret to inform you that your appointment has been cancelled.
+Your turf booking has been CANCELLED.
 
-Cancelled Appointment Details:
+Cancelled Booking:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📅 Date: {appointment_data['date']}
-⏰ Time: {appointment_data['time']}
-🆔 Appointment ID: #{appointment_data['id']}
+⏰ Time: {appointment_data['time']} to {end_time}
+🆔 Booking ID: #{appointment_data['id']}
 
 Status: CANCELLED ❌
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-If you would like to reschedule, please visit our booking page and select a new date and time.
-
-We apologize for any inconvenience caused.
+If this was a mistake or you'd like to reschedule, please contact us.
 
 Best regards,
-The Appointment Team
-
----
-Book a new appointment: [Your booking URL]
-Questions? Contact us at {SMTP_CONFIG['email']}
+The Turf Management Team
         """
     else:
-        # For 'pending' status or any other, no email is sent from this function
-        return True  
+        return True
     
     return send_email(appointment_data['email'], subject, body)
 
@@ -235,8 +174,19 @@ Questions? Contact us at {SMTP_CONFIG['email']}
 def index():
     return render_template('index.html')
 
+@app.route('/admin')
+def admin_redirect():
+    """Redirect /admin to /admin/login if not logged in, otherwise to admin dashboard"""
+    if 'admin_logged_in' in session and session.get('admin_logged_in'):
+        return redirect(url_for('admin_dashboard'))
+    else:
+        return redirect(url_for('admin_login'))
+
 @app.route('/admin/login')
 def admin_login():
+    # If already logged in, redirect to admin dashboard
+    if 'admin_logged_in' in session and session.get('admin_logged_in'):
+        return redirect(url_for('admin_dashboard'))
     return render_template('login.html')
 
 @app.route('/admin/login', methods=['POST'])
@@ -244,25 +194,33 @@ def admin_login_post():
     username = request.form.get('username')
     password = request.form.get('password')
     
+    # Clear any existing session data first
+    session.pop('admin_logged_in', None)
+    session.pop('admin_username', None)
+    
     if username in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[username] == password:
         session['admin_logged_in'] = True
         session['admin_username'] = username
-        return redirect(url_for('admin'))
+        session.permanent = True  # Make session permanent
+        flash('Login successful!', 'success')
+        return redirect(url_for('admin_dashboard'))
     else:
+        flash('Invalid username or password. Please try again.', 'error')
         return render_template('login.html', error='Invalid username or password')
 
 @app.route('/admin/logout')
 def admin_logout():
     session.pop('admin_logged_in', None)
     session.pop('admin_username', None)
+    flash('You have been logged out successfully.', 'info')
     return redirect(url_for('admin_login'))
 
-@app.route('/admin')
+@app.route('/admin/dashboard')
 @login_required
-def admin():
+def admin_dashboard():
     return render_template('admin.html')
 
-# START: New code to be added
+# Update all admin routes to use the new naming
 @app.route('/admin/calendar')
 @login_required
 def admin_calendar():
@@ -270,64 +228,46 @@ def admin_calendar():
 
 @app.route('/admin/reports')
 @login_required
-def admin_reportss():
+def admin_reports():
     return render_template('reports.html')
 
-@app.route('/api/calendar-appointments/<int:year>/<int:month>')
-@login_required
-def get_calendar_appointments(year, month):
-    try:
-        start_date = f'{year}-{month:02d}-01'
-        end_date = f'{year}-{month:02d}-31' # Simple approach for end date
-
-        conn = get_db_connection()
-        appointments = conn.execute('''
-            SELECT date, status, COUNT(id) as count
-            FROM appointments
-            WHERE date BETWEEN ? AND ?
-            GROUP BY date, status
-        ''', (start_date, end_date)).fetchall()
-
-        result = {}
-        for row in appointments:
-            date = row['date']
-            if date not in result:
-                result[date] = {'approved': 0, 'pending': 0, 'cancelled': 0, 'total': 0}
-            
-            if row['status'] in result[date]:
-                result[date][row['status']] += row['count']
-            result[date]['total'] += row['count']
-
-        conn.close()
-        return jsonify(result)
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-# END: New code to be added
-
+# Keep the old route for backward compatibility but redirect
+@app.route('/admin')
+@login_required  
+def admin():
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/api/available-slots/<date>')
 def get_available_slots(date):
     try:
+        # Validate date format
+        datetime.strptime(date, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+    
+    try:
         conn = get_db_connection()
         
-        # Get all time slots
+        # Get all time slots (ordered by time)
         slots_query = conn.execute('SELECT * FROM time_slots ORDER BY time').fetchall()
         
         # Get booked appointments for the date
         booked_query = conn.execute('''
             SELECT time, COUNT(*) as count 
             FROM appointments 
-            WHERE date = ? AND status != 'cancelled'
+            WHERE date = ? AND status != 'cancelled' AND status != 'linked'
             GROUP BY time
         ''', (date,)).fetchall()
         
-        # Create a dictionary for quick lookup
         booked_counts = {row['time']: row['count'] for row in booked_query}
         
-        # Calculate available slots
         available_slots = []
         for slot in slots_query:
+            # Skip slots between 3 AM - 6 AM
+            hour = int(slot['time'].split(':')[0])
+            if hour >= 3 and hour < 6:
+                continue
+                
             booked_count = booked_counts.get(slot['time'], 0)
             available_count = slot['max_bookings'] - booked_count
             if available_count > 0:
@@ -338,7 +278,6 @@ def get_available_slots(date):
         
         conn.close()
         return jsonify(available_slots)
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -346,62 +285,78 @@ def get_available_slots(date):
 def book_appointment():
     try:
         data = request.json
-        name = data.get('name')
-        email = data.get('email')
-        phone = data.get('phone')
-        date = data.get('date')
-        time = data.get('time')
-        
-        if not all([name, email, phone, date, time]):
+        required_fields = ['name', 'email', 'phone', 'date', 'time', 'duration']
+        if not all(field in data for field in required_fields):
             return jsonify({'error': 'All fields are required'}), 400
+        
+        # Validate duration
+        if data['duration'] not in [30, 60]:
+            return jsonify({'error': 'Invalid duration'}), 400
         
         conn = get_db_connection()
         
-        # Check if slot is still available
+        # Check slot availability
         booked_count = conn.execute('''
             SELECT COUNT(*) as count 
             FROM appointments 
-            WHERE date = ? AND time = ? AND status != 'cancelled'
-        ''', (date, time)).fetchone()['count']
+            WHERE date = ? AND time = ? AND status != 'cancelled' AND status != 'linked'
+        ''', (data['date'], data['time'])).fetchone()['count']
         
-        slot_info = conn.execute('''
-            SELECT max_bookings FROM time_slots WHERE time = ?
-        ''', (time,)).fetchone()
+        slot_info = conn.execute('SELECT max_bookings FROM time_slots WHERE time = ?', (data['time'],)).fetchone()
         
-        if not slot_info:
-            conn.close()
-            return jsonify({'error': 'Invalid time slot'}), 400
-        
-        if booked_count >= slot_info['max_bookings']:
+        if not slot_info or booked_count >= slot_info['max_bookings']:
             conn.close()
             return jsonify({'error': 'Time slot is fully booked'}), 400
         
-        # Book the appointment
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO appointments (name, email, phone, date, time)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (name, email, phone, date, time))
+        # For 1-hour bookings, check next slot
+        if data['duration'] == 60:
+            start_time = datetime.strptime(data['time'], '%H:%M')
+            next_slot_time = (start_time + timedelta(minutes=30)).strftime('%H:%M')
+            
+            next_slot_booked = conn.execute('''
+                SELECT COUNT(*) as count 
+                FROM appointments 
+                WHERE date = ? AND time = ? AND status != 'cancelled' AND status != 'linked'
+            ''', (data['date'], next_slot_time)).fetchone()['count']
+            
+            next_slot_info = conn.execute('SELECT max_bookings FROM time_slots WHERE time = ?', (next_slot_time,)).fetchone()
+            
+            if not next_slot_info or next_slot_booked >= next_slot_info['max_bookings']:
+                conn.close()
+                return jsonify({'error': 'Next 30-minute slot not available for 1-hour booking'}), 400
+            
+            # Book both slots
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO appointments (name, email, phone, date, time, duration)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (data['name'], data['email'], data['phone'], data['date'], data['time'], data['duration']))
+            
+            # Mark next slot as linked
+            cursor.execute('''
+                INSERT INTO appointments (name, email, phone, date, time, duration, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'linked')
+            ''', (data['name'], data['email'], data['phone'], data['date'], next_slot_time, data['duration']))
+            
+            appointment_id = cursor.lastrowid
+        else:
+            # Book single 30-minute slot
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO appointments (name, email, phone, date, time, duration)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (data['name'], data['email'], data['phone'], data['date'], data['time'], data['duration']))
+            
+            appointment_id = cursor.lastrowid
         
-        appointment_id = cursor.lastrowid
         conn.commit()
-        
-        # Get the created appointment data
-        appointment = conn.execute('''
-            SELECT * FROM appointments WHERE id = ?
-        ''', (appointment_id,)).fetchone()
-        
         conn.close()
-        
-        # Removed the immediate email sending here.
-        # The email will now be sent when the admin updates the status.
         
         return jsonify({
             'success': True,
             'appointment_id': appointment_id,
-            'message': 'Appointment booked successfully. Awaiting admin approval.'
+            'message': 'Turf booked successfully. Awaiting admin approval.'
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -409,11 +364,27 @@ def book_appointment():
 @login_required
 def get_appointments():
     try:
+        month = request.args.get('month')
+        year = request.args.get('year')
+        date = request.args.get('date')
+        
         conn = get_db_connection()
-        appointments = conn.execute('''
-            SELECT * FROM appointments 
-            ORDER BY date, time
-        ''').fetchall()
+        query = 'SELECT * FROM appointments WHERE status != "linked"'
+        params = []
+        
+        # Filter by month and year if provided
+        if month and year:
+            query += ' AND strftime("%m", date) = ? AND strftime("%Y", date) = ?'
+            params.extend([f"{int(month):02d}", year])
+        
+        # Filter by specific date if provided
+        if date:
+            query += ' AND date = ?'
+            params.append(date)
+        
+        query += ' ORDER BY date, time'
+        
+        appointments = conn.execute(query, params).fetchall()
         
         result = []
         for apt in appointments:
@@ -424,13 +395,83 @@ def get_appointments():
                 'phone': apt['phone'],
                 'date': apt['date'],
                 'time': apt['time'],
+                'duration': apt['duration'],
                 'status': apt['status'],
                 'created_at': apt['created_at']
             })
         
         conn.close()
         return jsonify(result)
-    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/calendar-appointments/<int:year>/<int:month>')
+@login_required
+def get_calendar_appointments(year, month):
+    try:
+        conn = get_db_connection()
+        
+        # Get all appointments for the month
+        appointments = conn.execute('''
+            SELECT date, status 
+            FROM appointments 
+            WHERE strftime("%Y", date) = ? 
+            AND strftime("%m", date) = ?
+            AND status != 'linked'
+        ''', (str(year), f"{month:02d}")).fetchall()
+        
+        # Format data for calendar
+        calendar_data = defaultdict(lambda: {
+            'approved': 0,
+            'pending': 0,
+            'cancelled': 0
+        })
+        
+        for apt in appointments:
+            calendar_data[apt['date']][apt['status']] += 1
+        
+        conn.close()
+        return jsonify(calendar_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/reports/stats')
+@login_required
+def get_reports_stats():
+    try:
+        conn = get_db_connection()
+        
+        # Get overall statistics
+        stats = {}
+        
+        # Total appointments
+        stats['total'] = conn.execute('SELECT COUNT(*) as count FROM appointments WHERE status != "linked"').fetchone()['count']
+        
+        # Status breakdown
+        status_data = conn.execute('''
+            SELECT status, COUNT(*) as count 
+            FROM appointments 
+            WHERE status != 'linked'
+            GROUP BY status
+        ''').fetchall()
+        
+        for row in status_data:
+            stats[row['status']] = row['count']
+        
+        # Trend data (last 30 days)
+        trend_data = conn.execute('''
+            SELECT date, COUNT(*) as count 
+            FROM appointments 
+            WHERE status != 'linked' 
+            AND date >= date('now', '-30 days')
+            GROUP BY date
+            ORDER BY date
+        ''').fetchall()
+        
+        stats['trend'] = [{'date': row['date'], 'count': row['count']} for row in trend_data]
+        
+        conn.close()
+        return jsonify(stats)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -439,49 +480,47 @@ def get_appointments():
 def update_appointment_status(appointment_id):
     try:
         data = request.json
-        status = data.get('status')
-        
-        if status not in ['pending', 'approved', 'cancelled']:
+        if 'status' not in data or data['status'] not in ['pending', 'approved', 'cancelled']:
             return jsonify({'error': 'Invalid status'}), 400
         
         conn = get_db_connection()
         
-        # Get current appointment data
-        current_appointment = conn.execute('''
-            SELECT * FROM appointments WHERE id = ?
-        ''', (appointment_id,)).fetchone()
-        
+        # Get current appointment
+        current_appointment = conn.execute('SELECT * FROM appointments WHERE id = ?', (appointment_id,)).fetchone()
         if not current_appointment:
             conn.close()
             return jsonify({'error': 'Appointment not found'}), 404
         
         old_status = current_appointment['status']
         
-        # Update the appointment
+        # Update appointment
         cursor = conn.cursor()
         cursor.execute('''
             UPDATE appointments 
             SET status = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (status, appointment_id))
+        ''', (data['status'], appointment_id))
         
-        if cursor.rowcount == 0:
-            conn.close()
-            return jsonify({'error': 'Failed to update appointment'}), 400
+        # Update linked slot if 1-hour booking
+        if current_appointment['duration'] == 60:
+            start_time = datetime.strptime(current_appointment['time'], '%H:%M')
+            next_slot_time = (start_time + timedelta(minutes=30)).strftime('%H:%M')
+            
+            cursor.execute('''
+                UPDATE appointments 
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE date = ? AND time = ? AND status = 'linked'
+            ''', (data['status'], current_appointment['date'], next_slot_time))
         
         conn.commit()
         
-        # Get updated appointment data
-        updated_appointment = conn.execute('''
-            SELECT * FROM appointments WHERE id = ?
-        ''', (appointment_id,)).fetchone()
-        
+        # Get updated appointment
+        updated_appointment = conn.execute('SELECT * FROM appointments WHERE id = ?', (appointment_id,)).fetchone()
         conn.close()
         
-        # Send status update email only if the status actually changed
-        # and it's 'approved' or 'cancelled'
+        # Send email if status changed
         email_sent = False
-        if old_status != status:
+        if old_status != data['status']:
             appointment_data = {
                 'id': updated_appointment['id'],
                 'name': updated_appointment['name'],
@@ -489,19 +528,19 @@ def update_appointment_status(appointment_id):
                 'phone': updated_appointment['phone'],
                 'date': updated_appointment['date'],
                 'time': updated_appointment['time'],
+                'duration': updated_appointment['duration'],
                 'status': updated_appointment['status']
             }
             email_sent = send_status_update_email(appointment_data, old_status)
         
         return jsonify({
             'success': True, 
-            'message': f'Appointment {status} successfully',
+            'message': f'Appointment {data["status"]} successfully',
             'email_sent': email_sent
         })
-    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    init_db() # Ensure database is initialized before running the app
+    init_db()
     app.run(debug=True)

@@ -71,6 +71,14 @@ nav {
     gap: 20px;
 }
 
+/* Updated stats layout for horizontal row */
+.stats-grid {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
 .stats {
     display: flex;
     gap: 20px;
@@ -83,13 +91,42 @@ nav {
     padding: 20px;
     border-radius: 12px;
     text-align: center;
-    min-width: 120px;
+    min-width: 140px;
+    flex: 1;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
 }
 
 .stat-card h3 {
     font-size: 2em;
     margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.stat-card p {
+    font-size: 0.9em;
+    opacity: 0.9;
+}
+
+/* Different colors for different stat types */
+.stat-card.total {
+    background: linear-gradient(135deg, #4c63d2 0%, #5a73e5 100%);
+}
+
+.stat-card.pending {
+    background: linear-gradient(135deg, #ffc107 0%, #ffb300 100%);
+}
+
+.stat-card.approved {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+}
+
+.stat-card.cancelled {
+    background: linear-gradient(135deg, #dc3545 0%, #e74c3c 100%);
 }
 
 .refresh-btn {
@@ -412,8 +449,14 @@ tr:hover {
         align-items: stretch;
     }
     
-    .stats {
+    .stats-grid {
         justify-content: center;
+        margin-bottom: 20px;
+    }
+    
+    .stat-card {
+        min-width: 120px;
+        flex: 1 1 calc(50% - 10px);
     }
     
     .filters {
@@ -431,5 +474,16 @@ tr:hover {
     .modal-content {
         width: 95%;
         padding: 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stat-card {
+        flex: 1 1 100%;
+        margin-bottom: 10px;
+    }
+    
+    .stats-grid {
+        flex-direction: column;
     }
 }

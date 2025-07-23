@@ -3,60 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel - Appointment Management</title>
+    <title>Admin Panel - Turf Booking Management</title>
     <link rel="stylesheet" href="/static/css/admin.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Appointment Management System</h1>
+            <h1>Turf Booking Management System</h1>
             <nav>
-                <a href="/admin" class="nav-link">Admin Panel</a>
+                <a href="/admin" class="nav-link active">Dashboard</a>
                 <a href="/admin/calendar" class="nav-link">Calendar View</a>
-                <a href="/admin/reports" class="nav-link">reports</a>
+                <a href="/admin/reports" class="nav-link">Reports & Analytics</a>
                 <a href="/admin/logout" class="nav-link">Logout</a>
             </nav>
         </header>
 
         <div class="admin-container">
             <div class="admin-header">
-                <div class="stats">
-                    <div class="stat-card">
-                        <h3 id="totalAppointments">0</h3>
-                        <p>Total</p>
+                <div class="stats-grid">
+                    <div class="stat-card total">
+                        <h3 id="totalBookings">0</h3>
+                        <p>Total Bookings</p>
                     </div>
-                    <div class="stat-card">
-                        <h3 id="pendingAppointments">0</h3>
-                        <p>Pending</p>
+                    <div class="stat-card pending">
+                        <h3 id="pendingBookings">0</h3>
+                        <p>Pending Approval</p>
                     </div>
-                    <div class="stat-card">
-                        <h3 id="approvedAppointments">0</h3>
+                    <div class="stat-card approved">
+                        <h3 id="approvedBookings">0</h3>
                         <p>Approved</p>
+                    </div>
+                    <div class="stat-card cancelled">
+                        <h3 id="cancelledBookings">0</h3>
+                        <p>Cancelled</p>
                     </div>
                 </div>
                 <button class="refresh-btn" onclick="loadAppointments()">
-                    Refresh Data
+                    <i class="fas fa-sync-alt"></i> Refresh
                 </button>
             </div>
 
             <div class="filters">
                 <select id="statusFilter">
-                    <option value="">All Status</option>
+                    <option value="">All Statuses</option>
                     <option value="pending">Pending</option>
                     <option value="approved">Approved</option>
                     <option value="cancelled">Cancelled</option>
                 </select>
-                <input type="date" id="dateFilter">
-                <input type="text" id="searchInput" placeholder="Search by name or email...">
+                <input type="date" id="dateFilter" placeholder="Filter by date">
+                <input type="text" id="searchInput" placeholder="Search by name, email or phone...">
             </div>
 
             <div id="loading" class="loading hidden">
                 <div class="spinner"></div>
-                <p>Loading appointments...</p>
+                <p>Loading bookings...</p>
             </div>
 
             <div id="noAppointments" class="no-appointments hidden">
-                <h3>No appointments found</h3>
+                <h3>No bookings found</h3>
                 <p>Try adjusting your filters or check back later.</p>
             </div>
 
@@ -65,23 +69,25 @@
                     <thead>
                         <tr>
                             <th>ID</th>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Phone</th>
-                            <th>Date</th>
-                            <th>Time</th>
+                            <th>Customer</th>
+                            <th>Contact</th>
+                            <th>Booking Date</th>
+                            <th>Time Slot</th>
+                            <th>Duration</th>
                             <th>Status</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="appointmentsBody">
-                        </tbody>
+                        <!-- Bookings will be loaded here -->
+                    </tbody>
                 </table>
             </div>
         </div>
     </div>
 
+    <!-- Confirm Action Modal -->
     <div id="confirmModal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
@@ -95,6 +101,7 @@
         </div>
     </div>
 
+    <!-- Success Modal -->
     <div id="successModal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
