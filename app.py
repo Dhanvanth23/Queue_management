@@ -1,546 +1,837 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
+from flask import Flask, request, jsonify, render_template, session, flash, redirect, url_for
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime, timedelta
+import uuid
+import json
+import os
+import logging
 import smtplib
+import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from functools import wraps
-from collections import defaultdict
+import razorpay
+import threading
+
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = 'hash fnqr bzuc fprm'
+app.secret_key = os.environ.get('SECRET_KEY', 'XgngjqMfdQNgynerzGzOgi9I')
 
-DATABASE = 'appointments.db'
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# SMTP Configuration
+DATABASE = 'turf_booking.db'
+
+# Create a global lock to prevent race conditions during booking
+booking_lock = threading.Lock()
+
+# Configuration for SMTP (Email)
 SMTP_CONFIG = {
     'server': 'smtp.gmail.com',
-    'port': 587,
+    'port': 465,
     'email': 'Brindha9005@gmail.com',
     'password': 'hash fnqr bzuc fprm',
-    'use_tls': True
+    'use_tls': False,  # set this to False since we’ll use SSL
+    'use_ssl': True     # custom field we will use in send_email
 }
 
-# Admin credentials
-ADMIN_CREDENTIALS = {
-    'admin': 'admin123'
+
+# Configuration for Razorpay Payment Gateway
+RAZORPAY_CONFIG = {
+    'key_id': os.environ.get('RAZORPAY_KEY_ID', 'rzp_test_3ng5TbF767f5tS'),
+    'key_secret': os.environ.get('RAZORPAY_KEY_SECRET', 'XgngjqMfdQNgynerzGzOgi9I')
 }
+razorpay_client = razorpay.Client(auth=(RAZORPAY_CONFIG['key_id'], RAZORPAY_CONFIG['key_secret']))
+
+# Database helper functions
+def get_db():
+    """Establishes a connection to the SQLite database and sets row_factory for dict-like access."""
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row # This allows accessing columns by name
+    return conn
 
 def init_db():
-    conn = sqlite3.connect(DATABASE)
+    """Initializes the database by creating necessary tables and a default admin user if they don't exist."""
+    conn = get_db()
     cursor = conn.cursor()
-    
-    # Create appointments table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS appointments (
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            phone TEXT NOT NULL,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            duration INTEGER DEFAULT 30,
-            status TEXT DEFAULT 'pending',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            is_admin INTEGER DEFAULT 0
         )
-    ''')
-    
-    # Create time slots table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS time_slots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            time TEXT UNIQUE NOT NULL,
-            max_bookings INTEGER DEFAULT 2
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bookings (
+            booking_id TEXT PRIMARY KEY,
+            user_name TEXT NOT NULL,
+            user_email TEXT NOT NULL,
+            user_phone TEXT NOT NULL,
+            turf_type TEXT NOT NULL,
+            booking_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            total_price REAL NOT NULL,
+            status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'completed', 'cancelled'
+            payment_status TEXT DEFAULT 'pending', -- 'pending', 'paid', 'failed'
+            payment_id TEXT,
+            order_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
-    
-    # Insert time slots from 6 AM to 3 AM (next day)
-    default_slots = []
-    for hour in range(6, 24):
-        default_slots.append((f"{hour:02d}:00", 2))
-        default_slots.append((f"{hour:02d}:30", 2))
-    for hour in range(0, 4):
-        default_slots.append((f"{hour:02d}:00", 2))
-        if hour < 3:
-            default_slots.append((f"{hour:02d}:30", 2))
-    
-    for slot in default_slots:
-        cursor.execute('INSERT OR IGNORE INTO time_slots (time, max_bookings) VALUES (?, ?)', slot)
-    
+    """)
+    # Add a default admin user if not exists for easy testing
+    cursor.execute("SELECT * FROM users WHERE username = 'admin'")
+    if not cursor.fetchone():
+        # IMPORTANT: In a production application, passwords should ALWAYS be hashed (e.g., using bcrypt).
+        # This is kept simple for demonstration purposes.
+        cursor.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, ?)",
+                       ('admin', 'adminpass', 1))
     conn.commit()
     conn.close()
 
-def get_db_connection():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+# Initialize database on app startup
+with app.app_context():
+    init_db()
 
+# Decorators for authentication and authorization
 def login_required(f):
+    """Decorator to ensure a user is logged in before accessing a route."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Check if admin is logged in
-        if 'admin_logged_in' not in session or not session.get('admin_logged_in'):
-            # Clear any invalid session data
-            session.pop('admin_logged_in', None)
-            session.pop('admin_username', None)
-            flash('Please log in to access the admin panel.', 'warning')
-            return redirect(url_for('admin_login'))
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'danger')
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
-def send_email(to_email, subject, body, is_html=False):
+def admin_required(f):
+    """Decorator to ensure the logged-in user has admin privileges."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'is_admin' not in session or not session['is_admin']:
+            flash('Access denied: Admins only.', 'danger')
+            return redirect(url_for('login')) # Redirect to login instead of index
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Email sending utility
+def send_email(to_email, subject, body):
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_CONFIG['email']
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'html'))
+
     try:
-        msg = MIMEMultipart('alternative')
-        msg['From'] = SMTP_CONFIG['email']
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        
-        if is_html:
-            msg.attach(MIMEText(body, 'html'))
+        if SMTP_CONFIG.get('use_ssl'):
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(SMTP_CONFIG['server'], SMTP_CONFIG['port'], context=context, timeout=10) as server:
+                server.login(SMTP_CONFIG['email'], SMTP_CONFIG['password'])
+                server.send_message(msg)
         else:
-            msg.attach(MIMEText(body, 'plain'))
-        
-        server = smtplib.SMTP(SMTP_CONFIG['server'], SMTP_CONFIG['port'])
-        if SMTP_CONFIG['use_tls']:
-            server.starttls()
-        server.login(SMTP_CONFIG['email'], SMTP_CONFIG['password'])
-        server.send_message(msg)
-        server.quit()
-        return True
+            with smtplib.SMTP(SMTP_CONFIG['server'], SMTP_CONFIG['port'], timeout=10) as server:
+                server.starttls()
+                server.login(SMTP_CONFIG['email'], SMTP_CONFIG['password'])
+                server.send_message(msg)
+
+        logger.info(f"✅ Email sent to {to_email} with subject: {subject}")
     except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+        logger.error(f"❌ Failed to send email to {to_email}: {e}")
 
-def send_status_update_email(appointment_data, old_status):
-    status = appointment_data['status']
-    
-    # Calculate end time
-    start_time = datetime.strptime(appointment_data['time'], '%H:%M')
-    end_time = (start_time + timedelta(minutes=appointment_data['duration'])).strftime('%H:%M')
-    
-    if status == 'approved':
-        subject = "✅ Turf Booking Approved"
-        body = f"""
-Dear {appointment_data['name']},
+def send_booking_confirmation_email(email, name, booking_id, turf_type, booking_date, start_time, end_time, total_price):
+    """Sends a booking confirmation email to the user."""
+    subject = f"Turf Booking Confirmation - #{booking_id}"
+    body = f"""
+    <html>
+    <body>
+        <p>Dear {name},</p>
+        <p>Your booking (ID: <strong>{booking_id}</strong>) for {turf_type} has been confirmed!</p>
+        <p><strong>Booking Details:</strong></p>
+        <ul>
+            <li>Date: {booking_date}</li>
+            <li>Time: {start_time} - {end_time}</li>
+            <li>Turf Type: {turf_type}</li>
+            <li>Total Price: &#8377;{total_price:.2f}</li>
+        </ul>
+        <p>Thank you for choosing our Premium Turf Booking System.</p>
+        <p>Best regards,<br>The Turf Team</p>
+    </body>
+    </html>
+    """
+    send_email(email, subject, body)
 
-Your turf booking has been APPROVED.
+def send_booking_status_update_email(email, name, booking_id, status, turf_type, booking_date, start_time, end_time):
+    """Sends an email notification about a booking status update."""
+    subject = f"Turf Booking Status Update - #{booking_id}"
+    body = f"""
+    <html>
+    <body>
+        <p>Dear {name},</p>
+        <p>The status of your booking (ID: <strong>{booking_id}</strong>) for {turf_type} on {booking_date} from {start_time} to {end_time} has been updated to: <strong>{status.upper()}</strong>.</p>
+        <p>If you have any questions, please contact us.</p>
+        <p>Best regards,<br>The Turf Team</p>
+    </body>
+    </html>
+    """
+    send_email(email, subject, body)
 
-Booking Details:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 Date: {appointment_data['date']}
-⏰ Time: {appointment_data['time']} to {end_time}
-⏳ Duration: {appointment_data['duration']} minutes
-📞 Phone: {appointment_data['phone']}
-🆔 Booking ID: #{appointment_data['id']}
-
-Status: APPROVED ✅
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-You can view your booking details at any time by visiting our website.
-
-Best regards,
-The Turf Management Team
-        """
-    elif status == 'cancelled':
-        subject = "❌ Turf Booking Cancelled"
-        body = f"""
-Dear {appointment_data['name']},
-
-Your turf booking has been CANCELLED.
-
-Cancelled Booking:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 Date: {appointment_data['date']}
-⏰ Time: {appointment_data['time']} to {end_time}
-🆔 Booking ID: #{appointment_data['id']}
-
-Status: CANCELLED ❌
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-If this was a mistake or you'd like to reschedule, please contact us.
-
-Best regards,
-The Turf Management Team
-        """
-    else:
-        return True
-    
-    return send_email(appointment_data['email'], subject, body)
-
+# Routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    """Renders the main booking page."""
+    # Pass the Razorpay key to the frontend for payment processing
+    return render_template('index.html', razorpay_key=RAZORPAY_CONFIG['key_id'])
 
 @app.route('/admin')
 def admin_redirect():
-    """Redirect /admin to /admin/login if not logged in, otherwise to admin dashboard"""
-    if 'admin_logged_in' in session and session.get('admin_logged_in'):
+    """Redirect to admin login or dashboard based on authentication status"""
+    if 'user_id' in session and session.get('is_admin'):
         return redirect(url_for('admin_dashboard'))
-    else:
-        return redirect(url_for('admin_login'))
-
-@app.route('/admin/login')
-def admin_login():
-    # If already logged in, redirect to admin dashboard
-    if 'admin_logged_in' in session and session.get('admin_logged_in'):
-        return redirect(url_for('admin_dashboard'))
-    return render_template('login.html')
-
-@app.route('/admin/login', methods=['POST'])
-def admin_login_post():
-    username = request.form.get('username')
-    password = request.form.get('password')
-    
-    # Clear any existing session data first
-    session.pop('admin_logged_in', None)
-    session.pop('admin_username', None)
-    
-    if username in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[username] == password:
-        session['admin_logged_in'] = True
-        session['admin_username'] = username
-        session.permanent = True  # Make session permanent
-        flash('Login successful!', 'success')
-        return redirect(url_for('admin_dashboard'))
-    else:
-        flash('Invalid username or password. Please try again.', 'error')
-        return render_template('login.html', error='Invalid username or password')
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin_logged_in', None)
-    session.pop('admin_username', None)
-    flash('You have been logged out successfully.', 'info')
     return redirect(url_for('admin_login'))
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    """Handles admin login specifically."""
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        conn = None
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ? AND password = ? AND is_admin = 1", (username, password))
+            user = cursor.fetchone()
+
+            if user:
+                session['user_id'] = user['id']
+                session['username'] = user['username']
+                session['is_admin'] = bool(user['is_admin'])
+                flash('Admin logged in successfully!', 'success')
+                return redirect(url_for('admin_dashboard'))
+            else:
+                flash('Invalid admin credentials.', 'danger')
+        except Exception as e:
+            logger.error(f"Error during admin login: {e}")
+            flash(f"An error occurred: {e}", 'danger')
+        finally:
+            if conn:
+                conn.close()
+    
+    # For GET requests or failed logins, render the login page
+    return render_template('login.html')
 
 @app.route('/admin/dashboard')
 @login_required
+@admin_required
 def admin_dashboard():
-    return render_template('admin.html')
+    """Render the admin dashboard"""
+    # Get stats for the dashboard
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get booking counts
+    cursor.execute("SELECT COUNT(*) FROM bookings")
+    total_bookings = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = 'pending'")
+    pending_bookings = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = 'approved'")
+    approved_bookings = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = 'cancelled'")
+    cancelled_bookings = cursor.fetchone()[0]
+    
+    # Get recent bookings
+    cursor.execute("""
+        SELECT booking_id as id, user_name as name, user_email as email, 
+               user_phone as phone, turf_type, booking_date as date, 
+               start_time as time, end_time, total_price, status, 
+               payment_status, created_at, 
+               CAST((julianday(end_time) - julianday(start_time)) * 24 * 60 AS INTEGER) as duration
+        FROM bookings 
+        ORDER BY created_at DESC
+        LIMIT 10
+    """)
+    recent_bookings = cursor.fetchall()
+    conn.close()
+    
+    return render_template('admin.html',
+                         total_bookings=total_bookings,
+                         pending_bookings=pending_bookings,
+                         approved_bookings=approved_bookings,
+                         cancelled_bookings=cancelled_bookings,
+                         recent_bookings=recent_bookings)
 
-# Update all admin routes to use the new naming
 @app.route('/admin/calendar')
 @login_required
+@admin_required
 def admin_calendar():
-    return render_template('calendar.html')
+    """Placeholder for the admin calendar view."""
+    return "<h1>Admin Calendar View - Coming Soon!</h1>"
 
 @app.route('/admin/reports')
 @login_required
+@admin_required
 def admin_reports():
-    return render_template('reports.html')
+    """Placeholder for the admin reports page."""
+    return "<h1>Admin Reports & Analytics - Coming Soon!</h1>"
 
-# Keep the old route for backward compatibility but redirect
-@app.route('/admin')
-@login_required  
-def admin():
-    return redirect(url_for('admin_dashboard'))
+@app.route('/admin/logout')
+@login_required
+@admin_required
+def admin_logout():
+    """Logs out the admin user."""
+    session.pop('user_id', None)
+    session.pop('username', None)
+    session.pop('is_admin', None)
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('admin_login'))
 
-@app.route('/api/available-slots/<date>')
-def get_available_slots(date):
-    try:
-        # Validate date format
-        datetime.strptime(date, '%Y-%m-%d')
-    except ValueError:
-        return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
-    
-    try:
-        conn = get_db_connection()
-        
-        # Get all time slots (ordered by time)
-        slots_query = conn.execute('SELECT * FROM time_slots ORDER BY time').fetchall()
-        
-        # Get booked appointments for the date
-        booked_query = conn.execute('''
-            SELECT time, COUNT(*) as count 
-            FROM appointments 
-            WHERE date = ? AND status != 'cancelled' AND status != 'linked'
-            GROUP BY time
-        ''', (date,)).fetchall()
-        
-        booked_counts = {row['time']: row['count'] for row in booked_query}
-        
-        available_slots = []
-        for slot in slots_query:
-            # Skip slots between 3 AM - 6 AM
-            hour = int(slot['time'].split(':')[0])
-            if hour >= 3 and hour < 6:
-                continue
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handles user login."""
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        conn = None
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+            user = cursor.fetchone()
+
+            if user:
+                session['user_id'] = user['id']
+                session['username'] = user['username']
+                session['is_admin'] = bool(user['is_admin'])
+                flash('Logged in successfully!', 'success')
                 
-            booked_count = booked_counts.get(slot['time'], 0)
-            available_count = slot['max_bookings'] - booked_count
-            if available_count > 0:
-                available_slots.append({
-                    'time': slot['time'],
-                    'available': available_count
-                })
-        
-        conn.close()
-        return jsonify(available_slots)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/book-appointment', methods=['POST'])
-def book_appointment():
-    try:
-        data = request.json
-        required_fields = ['name', 'email', 'phone', 'date', 'time', 'duration']
-        if not all(field in data for field in required_fields):
-            return jsonify({'error': 'All fields are required'}), 400
-        
-        # Validate duration
-        if data['duration'] not in [30, 60]:
-            return jsonify({'error': 'Invalid duration'}), 400
-        
-        conn = get_db_connection()
-        
-        # Check slot availability
-        booked_count = conn.execute('''
-            SELECT COUNT(*) as count 
-            FROM appointments 
-            WHERE date = ? AND time = ? AND status != 'cancelled' AND status != 'linked'
-        ''', (data['date'], data['time'])).fetchone()['count']
-        
-        slot_info = conn.execute('SELECT max_bookings FROM time_slots WHERE time = ?', (data['time'],)).fetchone()
-        
-        if not slot_info or booked_count >= slot_info['max_bookings']:
-            conn.close()
-            return jsonify({'error': 'Time slot is fully booked'}), 400
-        
-        # For 1-hour bookings, check next slot
-        if data['duration'] == 60:
-            start_time = datetime.strptime(data['time'], '%H:%M')
-            next_slot_time = (start_time + timedelta(minutes=30)).strftime('%H:%M')
-            
-            next_slot_booked = conn.execute('''
-                SELECT COUNT(*) as count 
-                FROM appointments 
-                WHERE date = ? AND time = ? AND status != 'cancelled' AND status != 'linked'
-            ''', (data['date'], next_slot_time)).fetchone()['count']
-            
-            next_slot_info = conn.execute('SELECT max_bookings FROM time_slots WHERE time = ?', (next_slot_time,)).fetchone()
-            
-            if not next_slot_info or next_slot_booked >= next_slot_info['max_bookings']:
+                # Redirect to admin dashboard if admin, otherwise to home
+                if session['is_admin']:
+                    return redirect(url_for('admin_dashboard'))
+                return redirect(url_for('index'))
+            else:
+                flash('Invalid username or password.', 'danger')
+        except Exception as e:
+            logger.error(f"Error during login: {e}")
+            flash(f"An error occurred: {e}", 'danger')
+        finally:
+            if conn:
                 conn.close()
-                return jsonify({'error': 'Next 30-minute slot not available for 1-hour booking'}), 400
-            
-            # Book both slots
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO appointments (name, email, phone, date, time, duration)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (data['name'], data['email'], data['phone'], data['date'], data['time'], data['duration']))
-            
-            # Mark next slot as linked
-            cursor.execute('''
-                INSERT INTO appointments (name, email, phone, date, time, duration, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'linked')
-            ''', (data['name'], data['email'], data['phone'], data['date'], next_slot_time, data['duration']))
-            
-            appointment_id = cursor.lastrowid
+    
+    # For GET requests or failed logins, render the login page
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Logs out the current user by clearing the session."""
+    session.pop('user_id', None)
+    session.pop('username', None)
+    session.pop('is_admin', None)
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('index'))
+
+@app.route('/api/book', methods=['POST'])
+def book_turf():
+    """Handles the booking of a turf slot."""
+    # Acquire a lock to prevent race conditions during booking creation, ensuring data integrity.
+    with booking_lock:
+        data = request.json
+        user_name = data.get('userName')
+        user_email = data.get('userEmail')
+        user_phone = data.get('userPhone')
+        turf_type = data.get('turfType', 'Premium Grass Turf')  # Default turf type
+        booking_date = data.get('bookingDate')
+        start_time = data.get('startTime')
+        duration = data.get('duration')  # Duration in minutes
+        total_price = data.get('totalPrice')
+        payment_status = data.get('paymentStatus', 'pending') # Default to pending
+        payment_id = data.get('paymentId')
+        order_id = data.get('orderId')
+
+        # Calculate end time based on start time and duration
+        if start_time and duration:
+            start_dt = datetime.strptime(start_time, '%H:%M')
+            end_dt = start_dt + timedelta(minutes=int(duration))
+            end_time = end_dt.strftime('%H:%M')
         else:
-            # Book single 30-minute slot
+            end_time = data.get('endTime')
+
+        # Validate required fields
+        if not all([user_name, user_email, user_phone, booking_date, start_time, end_time, total_price is not None]):
+            return jsonify({'success': False, 'message': 'Missing required booking data.'}), 400
+
+        # Validate date and time format and logical order (start before end)
+        try:
+            booking_datetime_start = datetime.strptime(f"{booking_date} {start_time}", '%Y-%m-%d %H:%M')
+            booking_datetime_end = datetime.strptime(f"{booking_date} {end_time}", '%Y-%m-%d %H:%M')
+            if booking_datetime_start >= booking_datetime_end:
+                return jsonify({'success': False, 'message': 'Start time must be before end time.'}), 400
+        except ValueError:
+            return jsonify({'success': False, 'message': 'Invalid date or time format.'}), 400
+
+        conn = None
+        try:
+            conn = get_db()
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO appointments (name, email, phone, date, time, duration)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (data['name'], data['email'], data['phone'], data['date'], data['time'], data['duration']))
+
+            # Check for existing overlapping bookings for the selected turf and time.
+            # An overlap occurs if (new_start < existing_end) AND (new_end > existing_start)
+            cursor.execute("""
+                SELECT COUNT(*) FROM bookings
+                WHERE turf_type = ? AND booking_date = ? AND
+                ((? < end_time AND ? > start_time))
+                AND (status = 'approved' OR status = 'pending') -- Only check against confirmed/pending bookings
+            """, (turf_type, booking_date, end_time, start_time))
+
+            existing_bookings_count = cursor.fetchone()[0]
+
+            if existing_bookings_count > 0:
+                logger.warning(f"Booking conflict detected for {turf_type} on {booking_date} from {start_time}-{end_time}")
+                return jsonify({'success': False, 'message': 'Selected slot is already booked or overlaps with an existing booking. Please choose another time.'}), 409
+
+            booking_id = str(uuid.uuid4()) # Generate a unique booking ID
+
+            # Insert the new booking into the database
+            cursor.execute("""
+                INSERT INTO bookings (booking_id, user_name, user_email, user_phone, turf_type,
+                                     booking_date, start_time, end_time, total_price,
+                                     status, payment_status, payment_id, order_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (booking_id, user_name, user_email, user_phone, turf_type,
+                  booking_date, start_time, end_time, total_price,
+                  'pending', payment_status, payment_id, order_id))
+            conn.commit()
+
+            # For free bookings, don't send confirmation email immediately - wait for admin approval
+            logger.info(f"Booking created successfully: {booking_id}")
             
-            appointment_id = cursor.lastrowid
-        
+            return jsonify({
+                'success': True, 
+                'message': 'Booking placed successfully! Waiting for admin approval.', 
+                'bookingId': booking_id
+            }), 201
+
+        except Exception as e:
+            conn.rollback() # Rollback transaction in case of error
+            logger.error(f"Error creating booking: {e}")
+            return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+        finally:
+            if conn:
+                conn.close()
+
+@app.route('/api/book/free', methods=['POST'])
+def book_turf_free():
+    """Handles free bookings (pay at venue)."""
+    data = request.json
+    user_name = data.get('userName')
+    user_email = data.get('userEmail')
+    user_phone = data.get('userPhone')
+    turf_type = data.get('turfType', 'Premium Grass Turf')
+    booking_date = data.get('bookingDate')
+    start_time = data.get('startTime')
+    duration = data.get('duration')
+    total_price = data.get('totalPrice')
+
+    # Calculate end time
+    if start_time and duration:
+        start_dt = datetime.strptime(start_time, '%H:%M')
+        end_dt = start_dt + timedelta(minutes=int(duration))
+        end_time = end_dt.strftime('%H:%M')
+    else:
+        return jsonify({'success': False, 'message': 'Start time and duration are required.'}), 400
+
+    # Validate required fields
+    if not all([user_name, user_email, user_phone, booking_date, start_time, end_time, total_price is not None]):
+        return jsonify({'success': False, 'message': 'Missing required booking data.'}), 400
+
+    # Validate date and time
+    try:
+        booking_datetime_start = datetime.strptime(f"{booking_date} {start_time}", '%Y-%m-%d %H:%M')
+        booking_datetime_end = datetime.strptime(f"{booking_date} {end_time}", '%Y-%m-%d %H:%M')
+        if booking_datetime_start >= booking_datetime_end:
+            return jsonify({'success': False, 'message': 'Start time must be before end time.'}), 400
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid date or time format.'}), 400
+
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Check for overlapping bookings
+        cursor.execute("""
+            SELECT COUNT(*) FROM bookings
+            WHERE turf_type = ? AND booking_date = ? AND
+            ((? < end_time AND ? > start_time))
+            AND (status = 'approved' OR status = 'pending')
+        """, (turf_type, booking_date, end_time, start_time))
+
+        if cursor.fetchone()[0] > 0:
+            return jsonify({'success': False, 'message': 'Selected slot is already booked. Please choose another time.'}), 409
+
+        booking_id = str(uuid.uuid4())
+
+        # Insert free booking with 'pending' status
+        cursor.execute("""
+            INSERT INTO bookings (booking_id, user_name, user_email, user_phone, turf_type,
+                                 booking_date, start_time, end_time, total_price,
+                                 status, payment_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending')
+        """, (booking_id, user_name, user_email, user_phone, turf_type,
+              booking_date, start_time, end_time, total_price))
         conn.commit()
-        conn.close()
-        
+
         return jsonify({
             'success': True,
-            'appointment_id': appointment_id,
-            'message': 'Turf booked successfully. Awaiting admin approval.'
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            'message': 'Free booking placed successfully! Your slot will be confirmed after admin approval.',
+            'bookingId': booking_id
+        }), 201
 
-@app.route('/api/appointments')
-@login_required
-def get_appointments():
-    try:
-        month = request.args.get('month')
-        year = request.args.get('year')
-        date = request.args.get('date')
-        
-        conn = get_db_connection()
-        query = 'SELECT * FROM appointments WHERE status != "linked"'
-        params = []
-        
-        # Filter by month and year if provided
-        if month and year:
-            query += ' AND strftime("%m", date) = ? AND strftime("%Y", date) = ?'
-            params.extend([f"{int(month):02d}", year])
-        
-        # Filter by specific date if provided
-        if date:
-            query += ' AND date = ?'
-            params.append(date)
-        
-        query += ' ORDER BY date, time'
-        
-        appointments = conn.execute(query, params).fetchall()
-        
-        result = []
-        for apt in appointments:
-            result.append({
-                'id': apt['id'],
-                'name': apt['name'],
-                'email': apt['email'],
-                'phone': apt['phone'],
-                'date': apt['date'],
-                'time': apt['time'],
-                'duration': apt['duration'],
-                'status': apt['status'],
-                'created_at': apt['created_at']
-            })
-        
-        conn.close()
-        return jsonify(result)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/calendar-appointments/<int:year>/<int:month>')
-@login_required
-def get_calendar_appointments(year, month):
-    try:
-        conn = get_db_connection()
-        
-        # Get all appointments for the month
-        appointments = conn.execute('''
-            SELECT date, status 
-            FROM appointments 
-            WHERE strftime("%Y", date) = ? 
-            AND strftime("%m", date) = ?
-            AND status != 'linked'
-        ''', (str(year), f"{month:02d}")).fetchall()
-        
-        # Format data for calendar
-        calendar_data = defaultdict(lambda: {
-            'approved': 0,
-            'pending': 0,
-            'cancelled': 0
-        })
-        
-        for apt in appointments:
-            calendar_data[apt['date']][apt['status']] += 1
-        
-        conn.close()
-        return jsonify(calendar_data)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/reports/stats')
-@login_required
-def get_reports_stats():
-    try:
-        conn = get_db_connection()
-        
-        # Get overall statistics
-        stats = {}
-        
-        # Total appointments
-        stats['total'] = conn.execute('SELECT COUNT(*) as count FROM appointments WHERE status != "linked"').fetchone()['count']
-        
-        # Status breakdown
-        status_data = conn.execute('''
-            SELECT status, COUNT(*) as count 
-            FROM appointments 
-            WHERE status != 'linked'
-            GROUP BY status
-        ''').fetchall()
-        
-        for row in status_data:
-            stats[row['status']] = row['count']
-        
-        # Trend data (last 30 days)
-        trend_data = conn.execute('''
-            SELECT date, COUNT(*) as count 
-            FROM appointments 
-            WHERE status != 'linked' 
-            AND date >= date('now', '-30 days')
-            GROUP BY date
-            ORDER BY date
-        ''').fetchall()
-        
-        stats['trend'] = [{'date': row['date'], 'count': row['count']} for row in trend_data]
-        
-        conn.close()
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/appointments/<int:appointment_id>/status', methods=['PUT'])
-@login_required
-def update_appointment_status(appointment_id):
-    try:
-        data = request.json
-        if 'status' not in data or data['status'] not in ['pending', 'approved', 'cancelled']:
-            return jsonify({'error': 'Invalid status'}), 400
-        
-        conn = get_db_connection()
-        
-        # Get current appointment
-        current_appointment = conn.execute('SELECT * FROM appointments WHERE id = ?', (appointment_id,)).fetchone()
-        if not current_appointment:
+        conn.rollback()
+        logger.error(f"Error creating free booking: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
             conn.close()
-            return jsonify({'error': 'Appointment not found'}), 404
-        
-        old_status = current_appointment['status']
-        
-        # Update appointment
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE appointments 
-            SET status = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (data['status'], appointment_id))
-        
-        # Update linked slot if 1-hour booking
-        if current_appointment['duration'] == 60:
-            start_time = datetime.strptime(current_appointment['time'], '%H:%M')
-            next_slot_time = (start_time + timedelta(minutes=30)).strftime('%H:%M')
-            
-            cursor.execute('''
-                UPDATE appointments 
-                SET status = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE date = ? AND time = ? AND status = 'linked'
-            ''', (data['status'], current_appointment['date'], next_slot_time))
-        
-        conn.commit()
-        
-        # Get updated appointment
-        updated_appointment = conn.execute('SELECT * FROM appointments WHERE id = ?', (appointment_id,)).fetchone()
-        conn.close()
-        
-        # Send email if status changed
-        email_sent = False
-        if old_status != data['status']:
-            appointment_data = {
-                'id': updated_appointment['id'],
-                'name': updated_appointment['name'],
-                'email': updated_appointment['email'],
-                'phone': updated_appointment['phone'],
-                'date': updated_appointment['date'],
-                'time': updated_appointment['time'],
-                'duration': updated_appointment['duration'],
-                'status': updated_appointment['status']
-            }
-            email_sent = send_status_update_email(appointment_data, old_status)
-        
-        return jsonify({
-            'success': True, 
-            'message': f'Appointment {data["status"]} successfully',
-            'email_sent': email_sent
+
+@app.route('/api/payment/order', methods=['POST'])
+def create_razorpay_order():
+    """Creates a Razorpay order for payment."""
+    data = request.json
+    amount_rupees = data.get('amount')
+    currency = 'INR'
+    receipt_id = str(uuid.uuid4()) # Generate a unique receipt ID for Razorpay
+
+    if not amount_rupees:
+        return jsonify({'success': False, 'message': 'Amount is required.'}), 400
+
+    amount_paise = int(float(amount_rupees) * 100) # Razorpay expects amount in paise
+
+    try:
+        order = razorpay_client.order.create({
+            'amount': amount_paise,
+            'currency': currency,
+            'receipt': receipt_id,
+            'payment_capture': '1' # Auto capture payment when successful
         })
+        return jsonify({'success': True, 'order_id': order['id'], 'amount': amount_rupees, 'currency': currency})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error creating Razorpay order: {e}")
+        return jsonify({'success': False, 'message': f'Failed to create order: {str(e)}'}), 500
+
+@app.route('/api/payment/verify', methods=['POST'])
+def verify_razorpay_payment():
+    """Verifies a successful Razorpay payment and updates the booking status."""
+    data = request.json
+    razorpay_order_id = data.get('razorpay_order_id')
+    razorpay_payment_id = data.get('razorpay_payment_id')
+    razorpay_signature = data.get('razorpay_signature')
+    booking_id = data.get('booking_id') # Get booking_id from frontend
+
+    if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature, booking_id]):
+        return jsonify({'success': False, 'message': 'Missing payment verification data.'}), 400
+
+    try:
+        # Verify the payment signature with Razorpay
+        params_dict = {
+            'razorpay_order_id': razorpay_order_id,
+            'razorpay_payment_id': razorpay_payment_id,
+            'razorpay_signature': razorpay_signature
+        }
+        razorpay_client.utility.verify_payment_signature(params_dict)
+
+        # Update booking status to 'paid' and 'approved' (or pending if admin approval is separate)
+        conn = None
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE bookings SET
+                payment_status = 'paid',
+                payment_id = ?,
+                status = 'approved' -- Auto-approve if payment is successful for simplicity
+                WHERE booking_id = ?
+            """, (razorpay_payment_id, booking_id))
+            conn.commit()
+
+            # Fetch booking details to send confirmation email in a non-blocking way
+            cursor.execute("SELECT user_email, user_name, turf_type, booking_date, start_time, end_time, total_price FROM bookings WHERE booking_id = ?", (booking_id,))
+            booking = cursor.fetchone()
+            if booking:
+                threading.Thread(target=send_booking_confirmation_email, args=(
+                    booking['user_email'], booking['user_name'], booking_id,
+                    booking['turf_type'], booking['booking_date'], booking['start_time'],
+                    booking['end_time'], booking['total_price']
+                )).start()
+
+            return jsonify({'success': True, 'message': 'Payment successful and booking updated!'})
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating booking status after payment: {e}")
+            return jsonify({'success': False, 'message': f'Internal server error during booking update: {str(e)}'}), 500
+        finally:
+            if conn:
+                conn.close()
+
+    except Exception as e:
+        logger.error(f"Razorpay signature verification failed for order {razorpay_order_id}, payment {razorpay_payment_id}: {e}")
+        return jsonify({'success': False, 'message': f'Payment verification failed: {str(e)}'}), 400
+
+# Admin API endpoints
+@app.route('/api/appointments', methods=['GET'])
+@login_required
+@admin_required
+def get_appointments():
+    """Admin API to fetch all bookings - matches the endpoint expected by admin.js"""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT booking_id as id, user_name as name, user_email as email, 
+                   user_phone as phone, turf_type, booking_date as date, 
+                   start_time as time, end_time, total_price, status, 
+                   payment_status, created_at, 
+                   CAST((julianday(end_time) - julianday(start_time)) * 24 * 60 AS INTEGER) as duration
+            FROM bookings 
+            ORDER BY created_at DESC
+        """)
+        bookings = cursor.fetchall()
+        
+        # Convert sqlite3.Row objects to dictionaries for JSON serialization
+        appointments = []
+        for booking in bookings:
+            appointment = dict(booking)
+            # Calculate duration if not available
+            if not appointment.get('duration'):
+                try:
+                    start_dt = datetime.strptime(appointment['time'], '%H:%M')
+                    end_dt = datetime.strptime(appointment['end_time'], '%H:%M')
+                    duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
+                    appointment['duration'] = duration_minutes
+                except:
+                    appointment['duration'] = 60  # Default to 60 minutes
+            appointments.append(appointment)
+            
+        return jsonify(appointments)
+    except Exception as e:
+        logger.error(f"Error fetching appointments: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/appointments/<int:booking_id>/status', methods=['PUT'])
+@login_required
+@admin_required
+def update_appointment_status(booking_id):
+    """Admin API to update the status of a specific booking - matches the endpoint expected by admin.js"""
+    data = request.json
+    new_status = data.get('status')
+    if not new_status:
+        return jsonify({'success': False, 'message': 'New status is required.'}), 400
+
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Fetch current booking details before updating to send notification email
+        cursor.execute("SELECT user_email, user_name, turf_type, booking_date, start_time, end_time FROM bookings WHERE rowid = ?", (booking_id,))
+        booking = cursor.fetchone()
+
+        if not booking:
+            return jsonify({'success': False, 'message': 'Booking not found.'}), 404
+
+        cursor.execute("UPDATE bookings SET status = ? WHERE rowid = ?", (new_status, booking_id))
+        conn.commit()
+
+        # Send status update email in a non-blocking way
+        threading.Thread(target=send_booking_status_update_email, args=(
+           booking['user_email'], booking['user_name'], str(booking_id), new_status,
+            booking['turf_type'], booking['booking_date'], booking['start_time'],
+            booking['end_time']
+        )).start()
+
+        return jsonify({'success': True, 'message': f'Booking {booking_id} status updated to {new_status}'})
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error updating booking status for {booking_id}: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/bookings', methods=['GET'])
+@login_required
+@admin_required
+def get_bookings():
+    """Admin API to fetch all bookings."""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM bookings ORDER BY created_at DESC")
+        bookings = cursor.fetchall()
+        # Convert sqlite3.Row objects to dictionaries for JSON serialization
+        return jsonify({'success': True, 'bookings': [dict(booking) for booking in bookings]})
+    except Exception as e:
+        logger.error(f"Error fetching bookings: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/admin/bookings/<string:booking_id>/status', methods=['PUT'])
+@login_required
+@admin_required
+def update_booking_status(booking_id):
+    """Admin API to update the status of a specific booking."""
+    data = request.json
+    new_status = data.get('status')
+    if not new_status:
+        return jsonify({'success': False, 'message': 'New status is required.'}), 400
+
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+
+        # Fetch current booking details before updating to send notification email
+        cursor.execute("SELECT user_email, user_name, turf_type, booking_date, start_time, end_time FROM bookings WHERE booking_id = ?", (booking_id,))
+        booking = cursor.fetchone()
+
+        if not booking:
+            return jsonify({'success': False, 'message': 'Booking not found.'}), 404
+
+        cursor.execute("UPDATE bookings SET status = ? WHERE booking_id = ?", (new_status, booking_id))
+        conn.commit()
+
+        # Send status update email in a non-blocking way
+        threading.Thread(target=send_booking_status_update_email, args=(
+           booking['user_email'], booking['user_name'], booking_id, new_status,
+            booking['turf_type'], booking['booking_date'], booking['start_time'],
+            booking['end_time']
+        )).start()
+
+        return jsonify({'success': True, 'message': f'Booking {booking_id} status updated to {new_status}'})
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error updating booking status for {booking_id}: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+# Admin API to delete a booking
+@app.route('/api/admin/bookings/<booking_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_booking(booking_id):
+    """Admin API to delete a specific booking."""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM bookings WHERE booking_id = ?", (booking_id,))
+        conn.commit()
+        return jsonify({'success': True, 'message': f'Booking {booking_id} deleted successfully'})
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error deleting booking {booking_id}: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/available-slots/<date>', methods=['GET'])
+def available_slots(date):
+    """
+    Returns available 30-minute and 1-hour slots for the given date,
+    accepting both MM/DD/YYYY and YYYY-MM-DD formats.
+    """
+    try:
+        # ✅ FIXED: Support both MM/DD/YYYY and YYYY-MM-DD
+        try:
+            selected_date = datetime.strptime(date, '%Y-%m-%d').date()
+        except ValueError:
+            selected_date = datetime.strptime(date, '%m/%d/%Y').date()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid date format. Use MM/DD/YYYY or YYYY-MM-DD.'}), 400
+
+    start_hour = 6
+    end_hour = 3  # 3 AM next day
+    slot_durations = [30, 60]
+    interval_minutes = 30
+
+    all_slots = []
+    for duration in slot_durations:
+        slots = []
+        current_time = datetime.combine(selected_date, datetime.min.time()).replace(hour=start_hour, minute=0)
+        last_slot_start = current_time + timedelta(days=1, hours=end_hour - start_hour) - timedelta(minutes=duration)
+        while current_time <= last_slot_start:
+            slot_start = current_time
+            slot_end = slot_start + timedelta(minutes=duration)
+            if slot_end.date() > selected_date + timedelta(days=1) or (slot_end.date() == selected_date + timedelta(days=1) and slot_end.hour > end_hour):
+                break
+            slots.append({'start': slot_start.strftime('%H:%M'), 'end': slot_end.strftime('%H:%M')})
+            current_time += timedelta(minutes=interval_minutes)
+        all_slots.append({'duration': duration, 'slots': slots})
+
+    # Fetch bookings for the selected date
+    conn = get_db()
+    cursor = conn.cursor()
+    bookings = cursor.execute(
+        """
+        SELECT start_time, end_time FROM bookings
+        WHERE booking_date = ?
+        AND status IN ('approved', 'pending')
+        """,
+        (selected_date.isoformat(),)
+    ).fetchall()
+    conn.close()
+
+    for duration_group in all_slots:
+        for slot in duration_group['slots']:
+            slot_start = datetime.strptime(f"{selected_date} {slot['start']}", '%Y-%m-%d %H:%M')
+            slot_end = datetime.strptime(f"{selected_date} {slot['end']}", '%Y-%m-%d %H:%M')
+            slot['available'] = True
+            for booking in bookings:
+                booking_start = datetime.strptime(f"{selected_date} {booking['start_time']}", '%Y-%m-%d %H:%M')
+                booking_end = datetime.strptime(f"{selected_date} {booking['end_time']}", '%Y-%m-%d %H:%M')
+                if slot_start < booking_end and slot_end > booking_start:
+                    slot['available'] = False
+                    break
+
+    flat_slots = []
+    for duration_group in all_slots:
+        for slot in duration_group['slots']:
+            flat_slots.append({
+                'start': slot['start'],
+                'end': slot['end'],
+                'duration': duration_group['duration'],
+                'available': slot['available']
+            })
+    return jsonify({'success': True, 'slots': flat_slots})
+
+
+@app.route('/api/slots/available', methods=['GET'])
+def get_available_slots():
+    turf_type = request.args.get('turf_type')
+    date = request.args.get('date')
+    if not date:
+        return jsonify({'success': False, 'message': 'Date is required.'}), 400
+    # turf_type is ignored for now, but could be used for filtering if needed
+    return available_slots(date)
 
 if __name__ == '__main__':
-    init_db()
-    app.run(debug=True)
+    app.run(debug=True, port=5000)

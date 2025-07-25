@@ -5,16 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Turf Booking Management</title>
     <link rel="stylesheet" href="/static/css/admin.css">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Turf Booking Management System</h1>
+            <h1><i class="fas fa-tachometer-alt"></i> Turf Booking Management System</h1>
             <nav>
-                <a href="/admin" class="nav-link active">Dashboard</a>
-                <a href="/admin/calendar" class="nav-link">Calendar View</a>
-                <a href="/admin/reports" class="nav-link">Reports & Analytics</a>
-                <a href="/admin/logout" class="nav-link">Logout</a>
+                <a href="/admin/dashboard" class="nav-link active">
+                    <i class="fas fa-home"></i> Dashboard
+                </a>
+                <a href="/admin/calendar" class="nav-link">
+                    <i class="fas fa-calendar"></i> Calendar View
+                </a>
+                <a href="/admin/reports" class="nav-link">
+                    <i class="fas fa-chart-bar"></i> Reports & Analytics
+                </a>
+                <a href="/admin/logout" class="nav-link">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a>
             </nav>
         </header>
 
@@ -22,23 +32,43 @@
             <div class="admin-header">
                 <div class="stats-grid">
                     <div class="stat-card total">
-                        <h3 id="totalBookings">0</h3>
-                        <p>Total Bookings</p>
+                        <div class="stat-icon">
+                            <i class="fas fa-clipboard-list"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="totalBookings">{{ total_bookings or 0 }}</h3>
+                            <p>Total Bookings</p>
+                        </div>
                     </div>
                     <div class="stat-card pending">
-                        <h3 id="pendingBookings">0</h3>
-                        <p>Pending Approval</p>
+                        <div class="stat-icon">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="pendingBookings">{{ pending_bookings or 0 }}</h3>
+                            <p>Pending Approval</p>
+                        </div>
                     </div>
                     <div class="stat-card approved">
-                        <h3 id="approvedBookings">0</h3>
-                        <p>Approved</p>
+                        <div class="stat-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="approvedBookings">{{ approved_bookings or 0 }}</h3>
+                            <p>Approved</p>
+                        </div>
                     </div>
                     <div class="stat-card cancelled">
-                        <h3 id="cancelledBookings">0</h3>
-                        <p>Cancelled</p>
+                        <div class="stat-icon">
+                            <i class="fas fa-times-circle"></i>
+                        </div>
+                        <div class="stat-info">
+                            <h3 id="cancelledBookings">{{ cancelled_bookings or 0 }}</h3>
+                            <p>Cancelled</p>
+                        </div>
                     </div>
                 </div>
-                <button class="refresh-btn" onclick="loadAppointments()">
+                <button class="refresh-btn" onclick="loadBookings()">
                     <i class="fas fa-sync-alt"></i> Refresh
                 </button>
             </div>
@@ -59,7 +89,7 @@
                 <p>Loading bookings...</p>
             </div>
 
-            <div id="noAppointments" class="no-appointments hidden">
+            <div id="noAppointments" class="no-bookings hidden">
                 <h3>No bookings found</h3>
                 <p>Try adjusting your filters or check back later.</p>
             </div>
@@ -68,13 +98,15 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>ID</th>
+                            <th>Booking ID</th>
                             <th>Customer</th>
                             <th>Contact</th>
+                            <th>Turf Type</th>
                             <th>Booking Date</th>
                             <th>Time Slot</th>
-                            <th>Duration</th>
+                            <th>Price</th>
                             <th>Status</th>
+                            <th>Payment</th>
                             <th>Created</th>
                             <th>Actions</th>
                         </tr>
@@ -113,7 +145,6 @@
             </div>
         </div>
     </div>
-
     <script src="/static/js/admin.js"></script>
 </body>
 </html>

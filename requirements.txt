@@ -2,3 +2,4 @@ Flask==2.3.3
 Flask-CORS==4.0.0
 'email':'Brindha9005@gmail.com',  # Your email
 'password': 'hash fnqr bzuc fprm'
+XgngjqMfdQNgynerzGzOgi9I

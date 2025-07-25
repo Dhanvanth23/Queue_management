@@ -3,107 +3,464 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turf Booking System</title>
+    <title>Premium Turf Booking System</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Razorpay Checkout Script -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script>
+        // Pass Razorpay key to JavaScript
+        window.RAZORPAY_KEY = "{{ razorpay_key }}";
+    </script>
 </head>
 <body>
+    <!-- Connection Status Indicator -->
+    <div id="connectionStatus" class="connection-status hidden">
+        <i class="fas fa-wifi"></i>
+        <span id="connectionText">Online</span>
+    </div>
+
     <div class="container">
         <header>
-            <h1>Turf Booking System</h1>
+            <div class="header-content">
+                <h1><i class="fas fa-futbol"></i> Premium Turf Booking</h1>
+                <div class="location-info">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>Green Valley Sports Complex, Coimbatore, Tamil Nadu</span>
+                </div>
+            </div>
             <nav>
-                <a href="/" class="nav-link active">Book Turf</a>
-                <a href="/admin" class="nav-link">Admin Panel</a>
+                <a href="/" class="nav-link active">
+                    <i class="fas fa-calendar-plus"></i> Book Turf
+                </a>
+                <a href="/admin" class="nav-link">
+                    <i class="fas fa-cog"></i> Admin Panel
+                </a>
             </nav>
         </header>
 
-        <div class="booking-container">
-            <div class="form-section">
-                <h2>Book Your Turf Slot</h2>
-                <form id="bookingForm">
-                    <div class="form-group">
-                        <label for="name">Full Name *</label>
-                        <input type="text" id="name" name="name" required>
-                    </div>
+        <!-- Real-time Availability Banner -->
+        <div id="availabilityBanner" class="availability-banner">
+            <div class="banner-content">
+                <i class="fas fa-clock"></i>
+                <span id="availabilityText">Loading availability...</span>
+                <div class="pulse-dot"></div>
+            </div>
+        </div>
 
-                    <div class="form-group">
-                        <label for="email">Email *</label>
-                        <input type="email" id="email" name="email" required>
+        <!-- Turf Gallery Section -->
+        <section class="turf-gallery">
+            <h2 class="gallery-title">
+                <i class="fas fa-images"></i> Our Premium Facilities
+            </h2>
+            <div class="gallery-grid">
+                <div class="turf-card">
+                    <div class="turf-image grass-turf">
+                        <div class="turf-overlay">
+                            <i class="fas fa-seedling"></i>
+                            <h3>Premium Grass Turf</h3>
+                            <p>Natural grass field for authentic football experience</p>
+                            <div class="status-badge available">
+                                <i class="fas fa-check-circle"></i> Available
+                            </div>
+                        </div>
                     </div>
-
-                    <div class="form-group">
-                        <label for="phone">Phone Number *</label>
-                        <input type="tel" id="phone" name="phone" required>
+                </div>
+                <div class="turf-card">
+                    <div class="turf-image football-field">
+                        <div class="turf-overlay">
+                            <i class="fas fa-futbol"></i>
+                            <h3>Football Arena</h3>
+                            <p>Professional-grade football field with floodlights</p>
+                            <div class="status-badge available">
+                                <i class="fas fa-check-circle"></i> Available
+                            </div>
+                        </div>
                     </div>
-
-                    <div class="form-group">
-                        <label for="date">Booking Date *</label>
-                        <input type="date" id="date" name="date" required>
+                </div>
+                <div class="turf-card">
+                    <div class="turf-image multi-sport">
+                        <div class="turf-overlay">
+                            <i class="fas fa-running"></i>
+                            <h3>Multi-Sport Arena</h3>
+                            <p>Versatile court for cricket, badminton & more</p>
+                            <div class="status-badge busy">
+                                <i class="fas fa-users"></i> Busy
+                            </div>
+                        </div>
                     </div>
+                </div>
+            </div>
+        </section>
 
-                    <div class="form-group">
-                        <label for="time">Available Time Slots *</label>
-                        <select id="time" name="time" required disabled>
-                            <option value="">Select a date first</option>
-                        </select>
-                        <div id="loading" class="loading hidden">Loading available slots...</div>
+        <!-- Booking Flow Container -->
+        <div class="booking-flow">
+            <!-- Step Progress Indicator -->
+            <div class="progress-steps">
+                <div class="step active" data-step="1">
+                    <div class="step-circle">
+                        <i class="fas fa-user"></i>
                     </div>
-
-                    <div class="form-group">
-                        <label for="duration">Duration *</label>
-                        <select id="duration" name="duration" required disabled>
-                            <option value="">Select time slot first</option>
-                            <option value="30">30 minutes</option>
-                            <option value="60">1 hour</option>
-                        </select>
+                    <span>Details</span>
+                </div>
+                <div class="step" data-step="2">
+                    <div class="step-circle">
+                        <i class="fas fa-calendar"></i>
                     </div>
-
-                    <button type="submit" id="submitBtn" class="submit-btn">Book Turf Slot</button>
-                </form>
+                    <span>Schedule</span>
+                </div>
+                <div class="step" data-step="3">
+                    <div class="step-circle">
+                        <i class="fas fa-check"></i>
+                    </div>
+                    <span>Confirm</span>
+                </div>
+                <div class="step optional" data-step="4">
+                    <div class="step-circle">
+                        <i class="fas fa-credit-card"></i>
+                    </div>
+                    <span>Payment</span>
+                </div>
             </div>
 
-            <div class="info-section">
-                <h3>📍 Turf Booking Information</h3>
-                <div class="info-card">
-                    <h4>Available Hours</h4>
-                    <p>Everyday: 6:00 AM - 3:00 AM (next day)</p>
-                    <p>30-minute or 1-hour slots available</p>
+            <div class="booking-container">
+                <!-- Booking Form Section -->
+                <div class="form-section">
+                    <!-- Step 1: Personal Details -->
+                    <div class="step-content active" id="step1">
+                        <h2><i class="fas fa-user-plus"></i> Personal Details</h2>
+                        <form id="personalDetailsForm">
+                            <div class="form-group">
+                                <label for="name">
+                                    <i class="fas fa-user"></i> Full Name *
+                                </label>
+                                <input type="text" id="name" name="name" required 
+                                       placeholder="Enter your full name"
+                                       autocomplete="name">
+                                <div class="field-validation"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="email">
+                                    <i class="fas fa-envelope"></i> Email *
+                                </label>
+                                <input type="email" id="email" name="email" required 
+                                       placeholder="your.email@example.com"
+                                       autocomplete="email">
+                                <div class="field-validation"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="phone">
+                                    <i class="fas fa-phone"></i> Phone Number *
+                                </label>
+                                <input type="tel" id="phone" name="phone" required 
+                                       placeholder="+91 98765 43210"
+                                       autocomplete="tel">
+                                <div class="field-validation"></div>
+                            </div>
+
+                            <button type="button" class="continue-btn" onclick="nextStep()">
+                                <span>Continue to Schedule</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Step 2: Schedule Selection -->
+                    <div class="step-content" id="step2">
+                        <h2><i class="fas fa-calendar-alt"></i> Select Schedule</h2>
+                        <form id="scheduleForm">
+                            <div class="form-group">
+                                <label for="date">
+                                    <i class="fas fa-calendar-alt"></i> Booking Date *
+                                </label>
+                                <input type="date" id="date" name="date" required>
+                                <div class="field-validation"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="time">
+                                    <i class="fas fa-clock"></i> Available Time Slots *
+                                </label>
+                                <div class="time-slots-container">
+                                    <select id="time" name="time" required disabled>
+                                        <option value="">Loading slots...</option>
+                                    </select>
+                                    <div id="slotsLoading" class="loading-spinner hidden">
+                                        <i class="fas fa-spinner fa-spin"></i>
+                                        <span>Loading available slots...</span>
+                                    </div>
+                                </div>
+                                <div class="field-validation"></div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="duration">
+                                    <i class="fas fa-hourglass-half"></i> Duration *
+                                </label>
+                                <div class="duration-options">
+                                    <div class="duration-card" data-duration="30">
+                                        <div class="duration-header">
+                                            <i class="fas fa-clock"></i>
+                                            <span>30 Minutes</span>
+                                        </div>
+                                        <div class="duration-price">₹500</div>
+                                        <div class="duration-description">Perfect for quick games</div>
+                                    </div>
+                                    <div class="duration-card" data-duration="60">
+                                        <div class="duration-header">
+                                            <i class="fas fa-clock"></i>
+                                            <span>1 Hour</span>
+                                        </div>
+                                        <div class="duration-price">₹1000</div>
+                                        <div class="duration-description">Full match experience</div>
+                                    </div>
+                                </div>
+                                <input type="hidden" id="duration" name="duration" required>
+                                <div class="field-validation"></div>
+                            </div>
+
+                            <div class="step-navigation">
+                                <button type="button" class="back-btn" onclick="previousStep()">
+                                    <i class="fas fa-arrow-left"></i>
+                                    <span>Back</span>
+                                </button>
+                                <button type="button" class="continue-btn" onclick="nextStep()">
+                                    <span>Review Booking</span>
+                                    <i class="fas fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Step 3: Booking Confirmation -->
+                    <div class="step-content" id="step3">
+                        <h2><i class="fas fa-check-circle"></i> Confirm Booking</h2>
+                        
+                        <div class="booking-summary">
+                            <div class="summary-header">
+                                <i class="fas fa-receipt"></i>
+                                <h3>Booking Summary</h3>
+                            </div>
+                            
+                            <div class="summary-details">
+                                <div class="detail-row">
+                                    <span class="label">
+                                        <i class="fas fa-user"></i> Name:
+                                    </span>
+                                    <span class="value" id="summaryName">-</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">
+                                        <i class="fas fa-envelope"></i> Email:
+                                    </span>
+                                    <span class="value" id="summaryEmail">-</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">
+                                        <i class="fas fa-phone"></i> Phone:
+                                    </span>
+                                    <span class="value" id="summaryPhone">-</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">
+                                        <i class="fas fa-calendar"></i> Date:
+                                    </span>
+                                    <span class="value" id="summaryDate">-</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">
+                                        <i class="fas fa-clock"></i> Time:
+                                    </span>
+                                    <span class="value" id="summaryTime">-</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="label">
+                                        <i class="fas fa-hourglass-half"></i> Duration:
+                                    </span>
+                                    <span class="value" id="summaryDuration">-</span>
+                                </div>
+                                <div class="detail-row total">
+                                    <span class="label">
+                                        <i class="fas fa-rupee-sign"></i> Total Amount:
+                                    </span>
+                                    <span class="value" id="summaryAmount">₹0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="booking-options">
+                            <div class="option-card free-booking">
+                                <div class="option-header">
+                                    <i class="fas fa-handshake"></i>
+                                    <h3>Book Now (Free)</h3>
+                                </div>
+                                <div class="option-description">
+                                    Reserve your slot without immediate payment. 
+                                    Pay at the venue when you arrive.
+                                </div>
+                                <div class="option-benefits">
+                                    <div class="benefit">
+                                        <i class="fas fa-check"></i>
+                                        <span>Instant confirmation</span>
+                                    </div>
+                                    <div class="benefit">
+                                        <i class="fas fa-check"></i>
+                                        <span>Pay at venue</span>
+                                    </div>
+                                    <div class="benefit">
+                                        <i class="fas fa-check"></i>
+                                        <span>Easy cancellation</span>
+                                    </div>
+                                </div>
+                                <button type="button" class="option-btn free-btn" onclick="confirmFreeBooking()">
+                                    <i class="fas fa-check"></i>
+                                    <span>Book for Free</span>
+                                </button>
+                            </div>
+
+                            <div class="option-card paid-booking">
+                                <div class="option-header">
+                                    <i class="fas fa-credit-card"></i>
+                                    <h3>Pay Online</h3>
+                                    <div class="discount-badge">
+                                        <i class="fas fa-percentage"></i>
+                                        <span>5% Off</span>
+                                    </div>
+                                </div>
+                                <div class="option-description">
+                                    Pay online now and get 5% discount. 
+                                    Guaranteed slot with priority booking.
+                                </div>
+                                <div class="option-benefits">
+                                    <div class="benefit">
+                                        <i class="fas fa-check"></i>
+                                        <span>5% discount</span>
+                                    </div>
+                                    <div class="benefit">
+                                        <i class="fas fa-check"></i>
+                                        <span>Guaranteed slot</span>
+                                    </div>
+                                    <div class="benefit">
+                                        <i class="fas fa-check"></i>
+                                        <span>Priority booking</span>
+                                    </div>
+                                </div>
+                                <button type="button" class="option-btn paid-btn" onclick="proceedToPayment()">
+                                    <i class="fas fa-lock"></i>
+                                    <span>Pay Online</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="step-navigation">
+                            <button type="button" class="back-btn" onclick="previousStep()">
+                                <i class="fas fa-arrow-left"></i>
+                                <span>Back to Schedule</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Payment (Optional) -->
+                    <div class="step-content" id="step4">
+                        <h2><i class="fas fa-credit-card"></i> Payment</h2>
+                        
+                        <div class="payment-summary">
+                            <div class="price-breakdown">
+                                <div class="price-item">
+                                    <span>Base Price:</span>
+                                    <span id="basePrice">₹500</span>
+                                </div>
+                                <div class="price-item discount">
+                                    <span>Online Discount (5%):</span>
+                                    <span id="discountAmount">-₹25</span>
+                                </div>
+                                <div class="price-item">
+                                    <span>GST (18%):</span>
+                                    <span id="gstAmount">₹85.5</span>
+                                </div>
+                                <div class="price-item total">
+                                    <span>Final Amount:</span>
+                                    <span id="finalAmount">₹560.5</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="payment-methods">
+                            <h3><i class="fas fa-wallet"></i> Payment Methods</h3>
+                            <div class="payment-icons">
+                                <i class="fab fa-cc-visa"></i>
+                                <i class="fab fa-cc-mastercard"></i>
+                                <i class="fab fa-cc-paypal"></i>
+                                <i class="fas fa-university"></i>
+                                <i class="fas fa-mobile-alt"></i>
+                            </div>
+                            <p>All major payment methods accepted</p>
+                        </div>
+
+                        <div class="step-navigation">
+                            <button type="button" class="back-btn" onclick="previousStep()">
+                                <i class="fas fa-arrow-left"></i>
+                                <span>Back</span>
+                            </button>
+                            <button type="button" class="pay-btn" onclick="processPayment()">
+                                <i class="fas fa-lock"></i>
+                                <span>Pay Securely</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="info-card">
-                    <h4>Important Notes</h4>
-                    <ul>
-                        <li>Minimum booking duration: 30 minutes</li>
-                        <li>You will receive a confirmation email</li>
-                        <li>Please arrive 10 minutes early</li>
-                        <li>Cancellations must be made 24 hours in advance</li>
-                        <li>No bookings allowed between 3 AM - 6 AM</li>
-                    </ul>
+         
+
+                    <!-- Facility Information -->
+                    <div class="info-card">
+                        <h3><i class="fas fa-info-circle"></i> Facility Information</h3>
+                        <div class="info-content">
+                            <h4><i class="fas fa-clock"></i> Available Hours</h4>
+                            <p>Everyday: 6:00 AM - 3:00 AM (next day)</p>
+                            <p>30-minute or 1-hour slots available</p>
+                            
+                            <h4><i class="fas fa-rupee-sign"></i> Pricing</h4>
+                            <p>₹500 per 30 minutes</p>
+                            <p>₹1000 for 1 hour booking</p>
+                            <p>5% discount for online payments</p>
+                            
+                            <h4><i class="fas fa-star"></i> Amenities</h4>
+                            <ul>
+                                <li><i class="fas fa-lightbulb"></i> LED floodlights</li>
+                                <li><i class="fas fa-shower"></i> Changing rooms</li>
+                                <li><i class="fas fa-parking"></i> Free parking</li>
+                                <li><i class="fas fa-tint"></i> Water facilities</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Important Notes -->
+                    <div class="info-card rules-card">
+                        <h3><i class="fas fa-exclamation-triangle"></i> Important Notes</h3>
+                        <ul class="rules-list">
+                            <li><i class="fas fa-check-circle"></i> Free booking: Pay at venue</li>
+                            <li><i class="fas fa-check-circle"></i> Online payment: 5% discount</li>
+                            <li><i class="fas fa-check-circle"></i> Instant confirmation via email & SMS</li>
+                            <li><i class="fas fa-check-circle"></i> Arrive 10 minutes before your slot</li>
+                            <li><i class="fas fa-check-circle"></i> Cancellations: 24 hours advance notice</li>
+                            <li><i class="fas fa-check-circle"></i> No bookings between 3 AM - 6 AM</li>
+                            <li><i class="fas fa-check-circle"></i> Proper sports attire required</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Success Modal -->
-    <div id="successModal" class="modal hidden">
-        <div class="modal-content">
-            <h3>✅ Turf Booked Successfully!</h3>
-            <p>Your turf booking has been submitted and is pending approval.</p>
-            <p><strong>Booking ID:</strong> <span id="appointmentId"></span></p>
-            <p><strong>Time Slot:</strong> <span id="bookingSlot"></span></p>
-            <p>You will receive a confirmation email shortly.</p>
-            <button onclick="closeModal()" class="modal-btn">Close</button>
-        </div>
-    </div>
-
-    <!-- Error Modal -->
-    <div id="errorModal" class="modal hidden">
-        <div class="modal-content error">
-            <h3>❌ Error</h3>
-            <p id="errorMessage"></p>
-            <button onclick="closeErrorModal()" class="modal-btn">Close</button>
-        </div>
-    </div>
+    
 
     <script src="/static/js/booking.js"></script>
-</body>
-</html>
+    </body>
+    </html>

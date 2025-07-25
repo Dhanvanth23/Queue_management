@@ -124,7 +124,7 @@ function renderAppointments() {
 // Create booking row
 function createBookingRow(booking) {
     const row = document.createElement('tr');
-    const endTime = calculateEndTime(booking.time, booking.duration);
+    const endTime = booking.end_time || calculateEndTime(booking.time, booking.duration);
 
     row.innerHTML = `
         <td>${booking.id}</td>
@@ -135,6 +135,7 @@ function createBookingRow(booking) {
             </div>
         </td>
         <td>${escapeHtml(booking.phone)}</td>
+        <td>${escapeHtml(booking.turf_type || 'Premium Grass Turf')}</td>
         <td>${formatDate(booking.date)}</td>
         <td>
             <div class="time-slot">
@@ -143,8 +144,9 @@ function createBookingRow(booking) {
                 <span class="time">${formatTime(endTime)}</span>
             </div>
         </td>
-        <td>${booking.duration} mins</td>
+        <td>₹${booking.total_price}</td>
         <td><span class="status ${booking.status}">${booking.status.toUpperCase()}</span></td>
+        <td><span class="payment-status ${booking.payment_status || 'pending'}">${(booking.payment_status || 'pending').toUpperCase()}</span></td>
         <td>${formatDateTime(booking.created_at)}</td>
         <td>${createActionButtons(booking)}</td>
     `;
@@ -154,8 +156,10 @@ function createBookingRow(booking) {
 
 // Calculate end time
 function calculateEndTime(startTime, duration) {
+    if (!startTime || !duration) return startTime;
+    
     const [hours, minutes] = startTime.split(':').map(Number);
-    const totalMinutes = hours * 60 + minutes + duration;
+    const totalMinutes = hours * 60 + minutes + parseInt(duration);
     
     let newHours = Math.floor(totalMinutes / 60) % 24;
     const newMinutes = totalMinutes % 60;
@@ -168,16 +172,16 @@ function createActionButtons(booking) {
     let buttons = '';
     if (booking.status === 'pending') {
         buttons += `
-            <button class="action-btn approve" onclick="showConfirmModal(${booking.id}, 'approved')">
+            <button class="action-btn approve" onclick="showConfirmModal('${booking.id}', 'approved')">
                 <i class="fas fa-check"></i> Approve
             </button>
-            <button class="action-btn cancel" onclick="showConfirmModal(${booking.id}, 'cancelled')">
+            <button class="action-btn cancel" onclick="showConfirmModal('${booking.id}', 'cancelled')">
                 <i class="fas fa-times"></i> Cancel
             </button>
         `;
     } else if (booking.status === 'approved') {
         buttons += `
-            <button class="action-btn cancel" onclick="showConfirmModal(${booking.id}, 'cancelled')">
+            <button class="action-btn cancel" onclick="showConfirmModal('${booking.id}', 'cancelled')">
                 <i class="fas fa-times"></i> Cancel
             </button>
         `;
@@ -186,6 +190,8 @@ function createActionButtons(booking) {
     }
     return buttons;
 }
+
+
 
 // Confirmation Modal
 function showConfirmModal(bookingId, action) {
@@ -199,7 +205,7 @@ function showConfirmModal(bookingId, action) {
     }
 
     const actionText = action === 'approved' ? 'approve' : 'cancel';
-    const endTime = calculateEndTime(booking.time, booking.duration);
+    const endTime = booking.end_time || calculateEndTime(booking.time, booking.duration);
 
     document.getElementById('confirmMessage').textContent =
         `Are you sure you want to ${actionText} the turf booking for ${booking.name} (${formatTime(booking.time)} - ${formatTime(endTime)})?`;
@@ -225,7 +231,9 @@ async function confirmAction() {
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Processing...';
 
-        const response = await fetch(`/api/appointments/${currentBookingId}/status`, {
+
+        const response = await fetch(`/api/admin/bookings/${currentBookingId}/status`, {
+
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
@@ -237,7 +245,7 @@ async function confirmAction() {
 
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
         }
 
         closeConfirmModal();
@@ -254,6 +262,11 @@ async function confirmAction() {
     }
 }
 
+// Alternative function to load bookings (keeping for compatibility)
+async function loadBookings() {
+    await loadAppointments();
+}
+
 // Utility functions
 function formatDate(dateString) {
     const date = new Date(dateString + 'T00:00:00');
@@ -261,6 +274,7 @@ function formatDate(dateString) {
 }
 
 function formatTime(timeString) {
+    if (!timeString) return '';
     const [hours, minutes] = timeString.split(':');
     const hour = parseInt(hours);
     const ampm = hour >= 12 ? 'PM' : 'AM';
@@ -279,6 +293,7 @@ function formatDateTime(dateTimeString) {
 }
 
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
