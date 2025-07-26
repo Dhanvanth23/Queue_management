@@ -823,15 +823,62 @@ def available_slots(date):
             })
     return jsonify({'success': True, 'slots': flat_slots})
 
-
-@app.route('/api/slots/available', methods=['GET'])
+@app.route('/api/slots/available')
 def get_available_slots():
-    turf_type = request.args.get('turf_type')
-    date = request.args.get('date')
-    if not date:
-        return jsonify({'success': False, 'message': 'Date is required.'}), 400
-    # turf_type is ignored for now, but could be used for filtering if needed
-    return available_slots(date)
+    turf_type = request.args.get('turf_type', 'Standard')
+    date_str = request.args.get('date')
+
+    if not date_str:
+        return jsonify({'success': False, 'message': 'Missing date parameter'}), 400
+
+    try:
+        selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid date format. Use YYYY-MM-DD'}), 400
+
+    start_hour = 6
+    end_hour = 3  # next day 3 AM
+    max_end_time = datetime.combine(selected_date + timedelta(days=1), datetime.min.time()).replace(hour=end_hour)
+    base_time = datetime.combine(selected_date, datetime.min.time()).replace(hour=start_hour)
+
+    slot_durations = [30, 60]
+    all_slots = []
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    for duration in slot_durations:
+        current_time = base_time
+
+        while current_time + timedelta(minutes=duration) <= max_end_time:
+            start_time = current_time.strftime('%H:%M')
+            end_time = (current_time + timedelta(minutes=duration)).strftime('%H:%M')
+
+            # Check for overlapping bookings
+            cursor.execute("""
+                SELECT COUNT(*) FROM bookings
+                WHERE turf_type = ? AND booking_date = ? AND
+                      ((? < end_time AND ? > start_time)) AND
+                      (status = 'approved' OR status = 'pending')
+            """, (turf_type, date_str, end_time, start_time))
+
+            existing = cursor.fetchone()[0]
+            is_available = existing == 0
+
+            slot = {
+                'start': start_time,
+                'end': end_time,
+                'available': is_available,
+                'duration': duration  # 🔥 This helps frontend filter 30 or 60
+            }
+
+            all_slots.append(slot)
+            current_time += timedelta(minutes=30)  # move in 30-minute steps
+
+    conn.close()
+
+    return jsonify({'success': True, 'slots': all_slots})
+
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug='True',port=5000)

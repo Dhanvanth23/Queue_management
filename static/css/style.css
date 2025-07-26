@@ -1070,3 +1070,167 @@ nav {
 .info-content li {
     color: var(--text-secondary);
 }
+
+/* Fix for dropdown options visibility */
+.form-group select option {
+    background: var(--background-secondary);
+    color: var(--text-primary);
+    padding: 10px;
+}
+
+.form-group select {
+    background: var(--surface-color);
+    color: var(--text-primary);
+    /* Ensure dropdown arrow is visible */
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cbd5e1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+/* For WebKit browsers */
+.form-group select::-webkit-scrollbar {
+    width: 8px;
+}
+
+.form-group select::-webkit-scrollbar-track {
+    background: var(--surface-color);
+}
+
+.form-group select::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 4px;
+}
+
+/* Ensure focus state is visible */
+.form-group select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+    background: var(--surface-hover);
+}
+/* Modern Success Notification */
+.success-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(16, 185, 129, 0.3);
+    z-index: 10000;
+    max-width: 420px;
+    width: 90%;
+    transform: translateX(100%);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.success-notification.show {
+    transform: translateX(0);
+}
+
+.notification-content {
+    padding: 24px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    position: relative;
+}
+
+.notification-icon {
+    font-size: 2rem;
+    color: rgba(255, 255, 255, 0.9);
+    margin-top: 4px;
+    animation: bounce 0.6s ease;
+}
+
+@keyframes bounce {
+    0%, 20%, 53%, 80%, 100% { transform: translate3d(0,0,0); }
+    40%, 43% { transform: translate3d(0,-8px,0); }
+    70% { transform: translate3d(0,-4px,0); }
+    90% { transform: translate3d(0,-2px,0); }
+}
+
+.notification-details {
+    flex: 1;
+}
+
+.notification-details h3 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin: 0 0 8px 0;
+    color: white;
+}
+
+.notification-details p {
+    font-size: 0.95rem;
+    margin: 0 0 16px 0;
+    opacity: 0.9;
+    line-height: 1.4;
+}
+
+.booking-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.booking-info span {
+    font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.15);
+    padding: 4px 10px;
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+}
+
+.booking-id {
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+}
+
+.notification-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+}
+
+.notification-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .success-notification {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        width: auto;
+        max-width: none;
+    }
+    
+    .notification-content {
+        padding: 20px;
+    }
+    
+    .booking-info {
+        flex-direction: column;
+    }
+}

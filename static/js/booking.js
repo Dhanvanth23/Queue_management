@@ -3,6 +3,7 @@ class TurfBookingSystem {
         this.currentStep = 1;
         this.bookingData = {};
         this.availableSlots = [];
+        this.selectedDuration = null; // Track selected duration
         this.razorpayKey = window.RAZORPAY_KEY || 'rzp_test_3ng5TbF767f5tS';
         this.init();
     }
@@ -66,8 +67,8 @@ class TurfBookingSystem {
             maxDate.setMonth(maxDate.getMonth() + 3);
             dateInput.max = maxDate.toISOString().split('T')[0];
             
-            // Load today's slots initially
-            this.handleDateChange({ target: dateInput });
+            // Load today's slots initially - but only after duration is selected
+            // this.handleDateChange({ target: dateInput });
         }
     }
 
@@ -78,6 +79,13 @@ class TurfBookingSystem {
         
         if (!selectedDate) {
             timeSelect.innerHTML = '<option value="">Select a date first</option>';
+            timeSelect.disabled = true;
+            return;
+        }
+
+        // If no duration is selected, show message
+        if (!this.selectedDuration) {
+            timeSelect.innerHTML = '<option value="">Select duration first</option>';
             timeSelect.disabled = true;
             return;
         }
@@ -115,43 +123,49 @@ class TurfBookingSystem {
         }
     }
 
- // NOTE: Only the updated populateTimeSlots() method is shown below
-// Insert this updated function into your TurfBookingSystem class
+    populateTimeSlots(slots) {
+        const timeSelect = document.getElementById('time');
+        timeSelect.innerHTML = '';
 
-populateTimeSlots(slots) {
-    const timeSelect = document.getElementById('time');
-    timeSelect.innerHTML = '';
+        if (!slots || slots.length === 0) {
+            timeSelect.innerHTML = '<option value="">No slots available</option>';
+            timeSelect.disabled = true;
+            return;
+        }
 
-    if (!slots || slots.length === 0) {
-        timeSelect.innerHTML = '<option value="">No slots available</option>';
-        timeSelect.disabled = true;
-        return;
+        // Add default option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Select a time slot';
+        timeSelect.appendChild(defaultOption);
+
+        // Filter slots based on selected duration and availability
+        const filteredSlots = slots.filter(slot => {
+            return slot.available === true && slot.duration === this.selectedDuration;
+        });
+
+        console.log('All slots:', slots);
+        console.log('Selected duration:', this.selectedDuration);
+        console.log('Filtered slots:', filteredSlots);
+
+        if (filteredSlots.length === 0) {
+            const noSlotsOption = document.createElement('option');
+            noSlotsOption.value = '';
+            noSlotsOption.textContent = `No ${this.selectedDuration}-minute slots available`;
+            timeSelect.appendChild(noSlotsOption);
+            timeSelect.disabled = true;
+            return;
+        }
+
+        filteredSlots.forEach(slot => {
+            const option = document.createElement('option');
+            option.value = slot.start;
+            option.textContent = `${this.formatTime(slot.start)} - ${this.formatTime(slot.end)} (${slot.duration} min)`;
+            timeSelect.appendChild(option);
+        });
+
+        timeSelect.disabled = false;
     }
-
-    // Add default option
-    const defaultOption = document.createElement('option');
-    defaultOption.value = '';
-    defaultOption.textContent = 'Select a time slot';
-    timeSelect.appendChild(defaultOption);
-
-    // Filter and add only available slots using slot.available
-    const availableSlots = slots.filter(slot => slot.available === true);
-
-    if (availableSlots.length === 0) {
-        timeSelect.innerHTML = '<option value="">No slots available</option>';
-        timeSelect.disabled = true;
-        return;
-    }
-
-    availableSlots.forEach(slot => {
-        const option = document.createElement('option');
-        option.value = slot.start;
-        option.textContent = `${this.formatTime(slot.start)} - ${this.formatTime(slot.end)}`;
-        timeSelect.appendChild(option);
-    });
-
-    timeSelect.disabled = false;
-}
 
     updateLiveAvailabilityChart() {
         const chartContainer = document.querySelector('.availability-chart');
@@ -162,8 +176,8 @@ populateTimeSlots(slots) {
         // Use available slots or default demo data
         const sampleSlots = this.availableSlots.length > 0 
             ? this.availableSlots.slice(0, 3).map(slot => ({
-                time: slot.time.split('-')[0],
-                available: slot.status === 'available' ? 1 : 0
+                time: slot.start,
+                available: slot.available ? 1 : 0
             }))
             : [
                 { time: '06:00', available: 1 },
@@ -214,11 +228,27 @@ populateTimeSlots(slots) {
 
         // Select current card
         card.classList.add('selected');
-        const duration = card.dataset.duration;
+        const duration = parseInt(card.dataset.duration);
+        this.selectedDuration = duration;
         document.getElementById('duration').value = duration;
         
         // Clear any previous error
         this.clearFieldError(document.getElementById('duration'));
+
+        // Update time slots based on new duration selection
+        const dateInput = document.getElementById('date');
+        if (dateInput && dateInput.value && this.availableSlots.length > 0) {
+            this.populateTimeSlots(this.availableSlots);
+        } else if (dateInput && dateInput.value) {
+            // Reload slots for the selected date with new duration filter
+            this.handleDateChange({ target: dateInput });
+        }
+
+        // Update the time select placeholder
+        const timeSelect = document.getElementById('time');
+        if (timeSelect && !dateInput.value) {
+            timeSelect.innerHTML = '<option value="">Select a date first</option>';
+        }
     }
 
     validateField(field) {
@@ -621,45 +651,143 @@ populateTimeSlots(slots) {
         const errorMsg = response.error?.description || response.error?.reason || 'Payment failed';
         this.showError(`Payment failed: ${errorMsg}`);
     }
-
     showSuccessModal(data) {
-        document.getElementById('confirmedBookingId').textContent = data.booking_id;
-        document.getElementById('confirmedBookingDetails').textContent = 
-            `Your booking for ${data.duration} on ${data.slot} has been confirmed.`;
-        document.getElementById('confirmedPaymentInfo').textContent = 
-            `Payment: ${data.payment_status} (₹${data.amount})`;
+        // Remove any existing notifications
+        const existingNotification = document.getElementById('successNotification');
+        if (existingNotification) {
+            existingNotification.remove();
+        }
+    
+        // Create sleek notification
+        const notification = document.createElement('div');
+        notification.id = 'successNotification';
+        notification.className = 'success-notification';
+        notification.innerHTML = `
+            <div class="notification-content">
+                <div class="notification-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="notification-details">
+                    <h3>Booking Confirmed!</h3>
+                    <p>Your turf has been reserved successfully</p>
+                    <div class="booking-info">
+                        <span class="booking-id">ID: ${data.booking_id}</span>
+                        <span class="booking-time">${data.slot}</span>
+                        <span class="booking-amount">${data.payment_status} • ₹${data.amount}</span>
+                    </div>
+                </div>
+                <button class="notification-close" onclick="this.parentElement.parentElement.remove(); window.bookingSystemInstance?.resetForm();">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `;
         
-        document.getElementById('successModal').classList.remove('hidden');
+        document.body.appendChild(notification);
+        
+        // Auto show with animation
+        setTimeout(() => {
+            notification.classList.add('show');
+        }, 100);
+        
+        // Auto hide after 8 seconds
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.remove();
+                        this.resetForm();
+                    }
+                }, 300);
+            }
+        }, 8000);
     }
 
     showError(message) {
+        // Create error modal if it doesn't exist
+        let errorModal = document.getElementById('errorModal');
+        if (!errorModal) {
+            errorModal = document.createElement('div');
+            errorModal.id = 'errorModal';
+            errorModal.className = 'modal-overlay hidden';
+            errorModal.innerHTML = `
+                <div class="modal-content error">
+                    <div class="modal-header">
+                        <h2>❌ Error</h2>
+                        <button onclick="closeModal()" class="close-btn">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p id="errorMessage"></p>
+                    </div>
+                    <div class="modal-footer">
+                        <button onclick="closeModal()" class="btn-primary">Close</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(errorModal);
+        }
+
         document.getElementById('errorMessage').textContent = message;
-        document.getElementById('errorModal').classList.remove('hidden');
+        errorModal.classList.remove('hidden');
     }
 
     closeModal() {
-        document.getElementById('successModal')?.classList.add('hidden');
-        document.getElementById('errorModal')?.classList.add('hidden');
-    }
-
-    showLoadingOverlay(show, message = 'Processing...') {
-        const paymentModal = document.getElementById('paymentModal');
-        if (paymentModal) {
-            if (show) {
-                const messageElement = paymentModal.querySelector('p');
-                if (messageElement) {
-                    messageElement.textContent = message;
-                }
-                paymentModal.classList.remove('hidden');
-            } else {
-                paymentModal.classList.add('hidden');
+        const modals = ['successModal', 'errorModal', 'paymentModal'];
+        
+        modals.forEach(modalId => {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('show');
+                setTimeout(() => {
+                    if (modal.parentNode) {
+                        modal.parentNode.removeChild(modal);
+                    }
+                }, 300);
             }
+        });
+        
+        // Reset form after closing success modal
+        if (document.getElementById('successModal')) {
+            setTimeout(() => {
+                this.resetForm();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }, 300);
         }
     }
 
+    showLoadingOverlay(show, message = 'Processing...') {
+        let paymentModal = document.getElementById('paymentModal');
+        if (!paymentModal) {
+            paymentModal = document.createElement('div');
+            paymentModal.id = 'paymentModal';
+            paymentModal.className = 'modal-overlay hidden';
+            paymentModal.innerHTML = `
+                <div class="modal-content">
+                    <div class="modal-body">
+                        <div class="loading-spinner">
+                            <i class="fas fa-spinner fa-spin"></i>
+                        </div>
+                        <p>Processing...</p>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(paymentModal);
+        }
+
+        if (show) {
+            const messageElement = paymentModal.querySelector('p');
+            if (messageElement) {
+                messageElement.textContent = message;
+            }
+            paymentModal.classList.remove('hidden');
+        } else {
+            paymentModal.classList.add('hidden');
+        }
+    }
     resetForm() {
         // Reset to step 1
         this.currentStep = 1;
+        this.selectedDuration = null;
         this.showStep(1);
         
         // Clear form fields
@@ -668,7 +796,7 @@ populateTimeSlots(slots) {
             const field = document.getElementById(fieldId);
             if (field) field.value = '';
         });
-
+    
         // Reset date to today
         const dateInput = document.getElementById('date');
         if (dateInput) {
@@ -679,7 +807,7 @@ populateTimeSlots(slots) {
         // Reset time and duration
         const timeSelect = document.getElementById('time');
         if (timeSelect) {
-            timeSelect.innerHTML = '<option value="">Loading slots...</option>';
+            timeSelect.innerHTML = '<option value="">Select duration first</option>';
             timeSelect.disabled = true;
         }
         
@@ -692,22 +820,17 @@ populateTimeSlots(slots) {
         document.querySelectorAll('.duration-card').forEach(card => {
             card.classList.remove('selected');
         });
-
+    
         // Clear all field errors
         document.querySelectorAll('.error').forEach(field => {
             this.clearFieldError(field);
         });
-
+    
         // Reset booking data
         this.bookingData = {};
-        
-        // Reload today's slots
-        setTimeout(() => {
-            if (dateInput) {
-                this.handleDateChange({ target: dateInput });
-            }
-        }, 100);
-    }
+        this.availableSlots = [];
+    } // <- This closes the resetForm method
+  
 
     printBooking() {
         window.print();
