@@ -188,9 +188,13 @@ def index():
 @app.route('/admin')
 def admin_redirect():
     """Redirect to admin login or dashboard based on authentication status"""
-    if 'user_id' in session and session.get('is_admin'):
+    # Only redirect to dashboard if user is actually logged in AND is admin
+    if 'user_id' in session and 'is_admin' in session and session.get('is_admin') == True:
         return redirect(url_for('admin_dashboard'))
-    return redirect(url_for('admin_login'))
+    else:
+        # Clear session and force login
+        session.clear()
+        return redirect(url_for('admin_login'))
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -271,15 +275,15 @@ def admin_dashboard():
 @login_required
 @admin_required
 def admin_calendar():
-    """Placeholder for the admin calendar view."""
-    return "<h1>Admin Calendar View - Coming Soon!</h1>"
+    """Render the admin calendar view."""
+    return render_template('calendar.html')
 
 @app.route('/admin/reports')
 @login_required
 @admin_required
 def admin_reports():
-    """Placeholder for the admin reports page."""
-    return "<h1>Admin Reports & Analytics - Coming Soon!</h1>"
+    """Render the admin reports page."""
+    return render_template('reports.html')
 
 @app.route('/admin/logout')
 @login_required
@@ -878,6 +882,168 @@ def get_available_slots():
     conn.close()
 
     return jsonify({'success': True, 'slots': all_slots})
+
+@app.route('/api/calendar/bookings/<date>')
+@login_required
+@admin_required
+def get_calendar_bookings(date):
+    """API to get bookings for a specific date for calendar view."""
+    try:
+        # Validate date format
+        selected_date = datetime.strptime(date, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid date format. Use YYYY-MM-DD'}), 400
+    
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT booking_id, user_name, user_email, user_phone, turf_type,
+                   start_time, end_time, total_price, status, payment_status, created_at
+            FROM bookings 
+            WHERE booking_date = ?
+            ORDER BY start_time
+        """, (date,))
+        bookings = cursor.fetchall()
+        
+        # Convert to dictionaries
+        calendar_bookings = [dict(booking) for booking in bookings]
+        return jsonify({'success': True, 'bookings': calendar_bookings})
+    except Exception as e:
+        logger.error(f"Error fetching calendar bookings for {date}: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/calendar/month/<year>/<month>')
+@login_required
+@admin_required
+def get_monthly_bookings(year, month):
+    """API to get booking counts for each day in a month for calendar view."""
+    try:
+        year = int(year)
+        month = int(month)
+        # Get first and last day of the month
+        first_day = datetime(year, month, 1).date()
+        if month == 12:
+            last_day = datetime(year + 1, 1, 1).date() - timedelta(days=1)
+        else:
+            last_day = datetime(year, month + 1, 1).date() - timedelta(days=1)
+    except ValueError:
+        return jsonify({'success': False, 'message': 'Invalid year or month'}), 400
+    
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT booking_date, COUNT(*) as count,
+                   SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                   SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+                   SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+            FROM bookings 
+            WHERE booking_date BETWEEN ? AND ?
+            GROUP BY booking_date
+            ORDER BY booking_date
+        """, (first_day.isoformat(), last_day.isoformat()))
+        results = cursor.fetchall()
+        
+        # Convert to dictionaries
+        monthly_data = [dict(row) for row in results]
+        return jsonify({'success': True, 'data': monthly_data})
+    except Exception as e:
+        logger.error(f"Error fetching monthly bookings for {year}-{month}: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/reports/stats')
+@login_required
+@admin_required
+def get_reports_stats():
+    """API to get overall statistics for reports dashboard."""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get overall stats
+        cursor.execute("SELECT COUNT(*) FROM bookings")
+        total_bookings = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = 'approved'")
+        approved_bookings = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = 'pending'")
+        pending_bookings = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM bookings WHERE status = 'cancelled'")
+        cancelled_bookings = cursor.fetchone()[0]
+        
+        # Get revenue data
+        cursor.execute("SELECT SUM(total_price) FROM bookings WHERE payment_status = 'paid'")
+        total_revenue = cursor.fetchone()[0] or 0
+        
+        stats = {
+            'total_bookings': total_bookings,
+            'approved_bookings': approved_bookings,
+            'pending_bookings': pending_bookings,
+            'cancelled_bookings': cancelled_bookings,
+            'total_revenue': float(total_revenue)
+        }
+        
+        return jsonify({'success': True, 'stats': stats})
+    except Exception as e:
+        logger.error(f"Error fetching reports stats: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
+
+@app.route('/api/reports/trend')
+@login_required
+@admin_required
+def get_booking_trend():
+    """API to get booking trend data for the last 30 days."""
+    conn = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Get bookings for last 30 days
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).date()
+        cursor.execute("""
+            SELECT booking_date, COUNT(*) as count
+            FROM bookings 
+            WHERE booking_date >= ?
+            GROUP BY booking_date
+            ORDER BY booking_date
+        """, (thirty_days_ago.isoformat(),))
+        results = cursor.fetchall()
+        
+        # Fill in missing dates with 0 bookings
+        trend_data = []
+        current_date = thirty_days_ago
+        booking_dict = {row['booking_date']: row['count'] for row in results}
+        
+        for i in range(30):
+            date_str = current_date.isoformat()
+            trend_data.append({
+                'date': date_str,
+                'count': booking_dict.get(date_str, 0)
+            })
+            current_date += timedelta(days=1)
+        
+        return jsonify({'success': True, 'trend': trend_data})
+    except Exception as e:
+        logger.error(f"Error fetching booking trend: {e}")
+        return jsonify({'success': False, 'message': f'Internal server error: {str(e)}'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 
 if __name__ == '__main__':
