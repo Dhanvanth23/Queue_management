@@ -265,34 +265,21 @@ nav {
 }
 
 .grass-turf {
-    background: linear-gradient(135deg, #4ade80, #22c55e);
+    background-image: url('/static/images/turf1.jpeg');
+    background-size: cover;
+    background-position: center;
 }
 
 .football-field {
-    background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+    background-image: url('/static/images/turf2.jpeg');
+    background-size: cover;
+    background-position: center;
 }
 
 .multi-sport {
-    background: linear-gradient(135deg, #f59e0b, #d97706);
-}
-
-.turf-overlay {
-    background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-    padding: 25px;
-    width: 100%;
-    color: white;
-}
-
-.turf-overlay h3 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.turf-overlay p {
-    font-size: 0.95rem;
-    margin-bottom: 15px;
-    opacity: 0.9;
+    background-image: url('/static/images/turf3.jpeg');
+    background-size: cover;
+    background-position: center;
 }
 
 .status-badge {
