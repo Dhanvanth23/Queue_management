@@ -31,8 +31,8 @@ booking_lock = threading.Lock()
 SMTP_CONFIG = {
     'server': 'smtp.gmail.com',
     'port': 465,
-    'email': 'Brindha9005@gmail.com',
-    'password': 'hash fnqr bzuc fprm',
+    'email': 'ABC@gmail.com',
+    'password': 'pass',
     'use_tls': False,  # set this to False since we’ll use SSL
     'use_ssl': True     # custom field we will use in send_email
 }
