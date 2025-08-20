@@ -4,9 +4,12 @@ class TurfBookingSystem {
         this.bookingData = {};
         this.availableSlots = [];
         this.selectedDuration = null; // Track selected duration
-        this.razorpayKey = window.RAZORPAY_KEY || 'rzp_test_3ng5TbF767f5tS';
-        this.init();
-    }
+        this.razorpayKey = window.RAZORPAY_KEY;
+        if (!this.razorpayKey) {
+            console.error('Razorpay key not found. Payment functionality may not work.');
+        }
+                this.init();
+            }
 
     init() {
         this.setupEventListeners();

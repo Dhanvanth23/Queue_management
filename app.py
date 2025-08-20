@@ -17,7 +17,7 @@ import threading
 
 app = Flask(__name__)
 CORS(app)
-app.secret_key = os.environ.get('SECRET_KEY', 'XgngjqMfdQNgynerzGzOgi9I')
+app.secret_key = os.environ.get('SECRET_KEY')
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,8 +40,8 @@ SMTP_CONFIG = {
 
 # Configuration for Razorpay Payment Gateway
 RAZORPAY_CONFIG = {
-    'key_id': os.environ.get('RAZORPAY_KEY_ID', 'rzp_test_3ng5TbF767f5tS'),
-    'key_secret': os.environ.get('RAZORPAY_KEY_SECRET', 'XgngjqMfdQNgynerzGzOgi9I')
+    'key_id': os.environ.get('RAZORPAY_KEY_ID'),
+    'key_secret': os.environ.get('RAZORPAY_KEY_SECRET')
 }
 razorpay_client = razorpay.Client(auth=(RAZORPAY_CONFIG['key_id'], RAZORPAY_CONFIG['key_secret']))
 
